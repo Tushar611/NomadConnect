@@ -10,7 +10,9 @@ const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY;
 const REVENUECAT_ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY;
 
-const ENTITLEMENT_PRO = "Nomad Connect Pro";
+const ENTITLEMENT_PRO = "explorer";
+const ENTITLEMENT_ADVENTURER = "adventurer";
+const ENTITLEMENT_LIFETIME = "lifetime";
 
 let isConfigured = false;
 
@@ -115,20 +117,21 @@ export async function checkUserEntitlements(): Promise<{
     const info = await Purchases.getCustomerInfo();
     const activeEntitlements = Object.keys(info.entitlements.active);
 
-    const hasProEntitlement =
-      info.entitlements.active[ENTITLEMENT_PRO]?.isActive === true;
-
-    const hasLegacyPro =
+    const hasExplorer =
+      info.entitlements.active[ENTITLEMENT_PRO]?.isActive === true ||
       activeEntitlements.includes("pro") ||
-      activeEntitlements.includes("expert") ||
+      activeEntitlements.includes("Nomad Connect Pro");
+
+    const hasAdventurer =
+      info.entitlements.active[ENTITLEMENT_ADVENTURER]?.isActive === true ||
+      activeEntitlements.includes("expert");
+
+    const hasLifetime =
+      info.entitlements.active[ENTITLEMENT_LIFETIME]?.isActive === true ||
       activeEntitlements.includes("lifetime");
 
-    const isPro = hasProEntitlement || hasLegacyPro;
-
-    const isPremium =
-      activeEntitlements.includes("expert") ||
-      activeEntitlements.includes("lifetime") ||
-      hasProEntitlement;
+    const isPro = hasExplorer || hasAdventurer || hasLifetime;
+    const isPremium = hasAdventurer || hasLifetime;
 
     return { customerInfo: info, activeEntitlements, isPro, isPremium };
   } catch (error) {
@@ -219,4 +222,4 @@ export async function purchaseConsultation(expertName: string, amount: number): 
   }
 }
 
-export { isConfigured as isRevenueCatConfigured, ENTITLEMENT_PRO };
+export { isConfigured as isRevenueCatConfigured, ENTITLEMENT_PRO, ENTITLEMENT_ADVENTURER, ENTITLEMENT_LIFETIME };

@@ -20,6 +20,8 @@ import {
   logoutUser,
   getCustomerInfo,
   ENTITLEMENT_PRO,
+  ENTITLEMENT_ADVENTURER,
+  ENTITLEMENT_LIFETIME,
 } from "@/services/revenuecat";
 
 export type SubscriptionTier = "free" | "pro" | "expert" | "lifetime";
@@ -60,7 +62,7 @@ const TIER_FEATURES: Record<SubscriptionTier, string[]> = {
     "Unlimited AI Advisor access",
     "Basic Expert Marketplace access",
     "Priority visibility in Discover",
-    "Pro Badge",
+    "Explorer Badge",
   ],
   expert: [
     "Unlimited Radar",
@@ -68,19 +70,19 @@ const TIER_FEATURES: Record<SubscriptionTier, string[]> = {
     "Full AI Van Build Advisor",
     "Full Expert Marketplace access",
     "Activities posting + hosting",
-    "Premium Badge",
+    "Adventurer Badge",
     "Advanced match recommendations",
     "Highest profile visibility",
   ],
   lifetime: [
+    "Everything in Adventurer, forever",
     "Unlimited Radar forever",
     "Unlimited Compatibility forever",
     "Full AI Van Build Advisor forever",
-    "Full Expert Marketplace access forever",
-    "Activities posting + hosting forever",
-    "Lifetime Premium Badge",
+    "Lifetime Adventurer Badge",
     "Highest visibility forever",
     "All future premium features included",
+    "One-time payment, no renewals",
   ],
 };
 
@@ -102,11 +104,22 @@ const TIER_PRICES: Record<SubscriptionTier, string> = {
 };
 
 function getTierFromEntitlements(activeEntitlements: string[]): SubscriptionTier {
-  if (activeEntitlements.includes("lifetime")) return "lifetime";
-  if (activeEntitlements.includes("expert")) return "expert";
   if (
+    activeEntitlements.includes(ENTITLEMENT_LIFETIME) ||
+    activeEntitlements.includes("lifetime")
+  )
+    return "lifetime";
+  if (
+    activeEntitlements.includes(ENTITLEMENT_ADVENTURER) ||
+    activeEntitlements.includes("expert") ||
+    activeEntitlements.includes("adventurer")
+  )
+    return "expert";
+  if (
+    activeEntitlements.includes(ENTITLEMENT_PRO) ||
     activeEntitlements.includes("pro") ||
-    activeEntitlements.includes(ENTITLEMENT_PRO)
+    activeEntitlements.includes("explorer") ||
+    activeEntitlements.includes("Nomad Connect Pro")
   )
     return "pro";
   return "free";
@@ -115,12 +128,15 @@ function getTierFromEntitlements(activeEntitlements: string[]): SubscriptionTier
 function getTierFromCustomerInfo(info: CustomerInfo): SubscriptionTier {
   const activeEntitlements = Object.keys(info.entitlements.active);
 
+  if (info.entitlements.active[ENTITLEMENT_LIFETIME]?.isActive) {
+    return "lifetime";
+  }
+
+  if (info.entitlements.active[ENTITLEMENT_ADVENTURER]?.isActive) {
+    return "expert";
+  }
+
   if (info.entitlements.active[ENTITLEMENT_PRO]?.isActive) {
-    const productId =
-      info.entitlements.active[ENTITLEMENT_PRO]?.productIdentifier || "";
-    if (productId.includes("yearly") || productId.includes("annual")) {
-      return "pro";
-    }
     return "pro";
   }
 
@@ -201,12 +217,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (packageId.includes("lifetime")) {
         setTier("lifetime");
         setUserEntitlements(["lifetime"]);
-      } else if (packageId.includes("expert") || packageId.includes("annual") || packageId === "expert") {
+      } else if (packageId.includes("adventurer") || packageId.includes("expert") || packageId.includes("annual") || packageId === "expert") {
         setTier("expert");
-        setUserEntitlements(["expert"]);
-      } else if (packageId.includes("pro") || packageId.includes("monthly") || packageId.includes("yearly") || packageId === "pro") {
+        setUserEntitlements(["adventurer"]);
+      } else if (packageId.includes("explorer") || packageId.includes("pro") || packageId.includes("monthly") || packageId.includes("yearly") || packageId === "pro") {
         setTier("pro");
-        setUserEntitlements(["pro"]);
+        setUserEntitlements(["explorer"]);
       }
       return;
     }
@@ -240,7 +256,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         await RevenueCatUI.default.presentPaywall();
       } else if (RevenueCatUI?.default?.presentPaywallIfNeeded) {
         await RevenueCatUI.default.presentPaywallIfNeeded({
-          requiredEntitlementIdentifier: ENTITLEMENT_PRO,
+          requiredEntitlementIdentifier: "explorer",
         });
       }
     } catch (error) {
