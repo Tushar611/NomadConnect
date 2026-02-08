@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Platform,
   Image,
-  Alert,
   Linking,
   Modal,
   Animated as RNAnimated,
@@ -29,6 +28,7 @@ import type { AudioPlayer, AudioRecorder } from "expo-audio";
 import { ChatBackground } from "@/components/ChatBackground";
 import { ThemedText } from "@/components/ThemedText";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
 import { AppColors, Spacing, BorderRadius, GradientPresets } from "@/constants/theme";
@@ -173,6 +173,7 @@ const generateSessionTitle = (messages: Message[]): string => {
 export default function AIChatScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -389,10 +390,11 @@ export default function AIChatScreen() {
   }, [sessions, currentSessionId, messages]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
-    Alert.alert(
-      "Delete Chat",
-      "Are you sure you want to delete this chat?",
-      [
+    showAlert({
+      type: "confirm",
+      title: "Delete Chat",
+      message: "Are you sure you want to delete this chat?",
+      buttons: [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
@@ -425,24 +427,24 @@ export default function AIChatScreen() {
             }
           },
         },
-      ]
-    );
+      ],
+    });
   }, [sessions, currentSessionId]);
 
   const clearAllChats = useCallback(async () => {
     if (!user?.id) return;
     
-    Alert.alert(
-      "Clear All Chats",
-      "Are you sure you want to delete all chat history?",
-      [
+    showAlert({
+      type: "confirm",
+      title: "Clear All Chats",
+      message: "Are you sure you want to delete all chat history?",
+      buttons: [
         { text: "Cancel", style: "cancel" },
         {
           text: "Clear All",
           style: "destructive",
           onPress: async () => {
             try {
-              // Delete each session individually
               for (const session of sessions) {
                 await fetch(
                   new URL(`/api/ai/sessions/${session.id}`, getApiUrl()).toString(),
@@ -461,8 +463,8 @@ export default function AIChatScreen() {
             }
           },
         },
-      ]
-    );
+      ],
+    });
   }, [sessions]);
 
     const sendMessage = useCallback(async (text: string) => {
@@ -584,7 +586,7 @@ export default function AIChatScreen() {
   const handleTakePhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Camera permission is needed to take photos.");
+      showAlert({ type: "warning", title: "Permission Required", message: "Camera permission is needed to take photos." });
       return;
     }
 
@@ -622,7 +624,7 @@ export default function AIChatScreen() {
         }
       } catch (error) {
         console.error("Failed to upload photo:", error);
-        Alert.alert("Upload Failed", "Could not upload photo. Please try again.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo. Please try again." });
       } finally {
         setIsLoading(false);
         setUploadLabel(null);
@@ -633,7 +635,7 @@ export default function AIChatScreen() {
   const handleChoosePhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Photo library permission is needed to select photos.");
+      showAlert({ type: "warning", title: "Permission Required", message: "Photo library permission is needed to select photos." });
       return;
     }
 
@@ -671,7 +673,7 @@ export default function AIChatScreen() {
         }
       } catch (error) {
         console.error("Failed to upload photo:", error);
-        Alert.alert("Upload Failed", "Could not upload photo. Please try again.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo. Please try again." });
       } finally {
         setIsLoading(false);
         setUploadLabel(null);
@@ -745,7 +747,7 @@ export default function AIChatScreen() {
           }
         } catch (error) {
           console.error("Failed to upload file:", error);
-          Alert.alert("Upload Failed", "Could not upload file. Please try again.");
+          showAlert({ type: "error", title: "Upload Failed", message: "Could not upload file. Please try again." });
         } finally {
           setIsLoading(false);
         }
@@ -788,7 +790,7 @@ export default function AIChatScreen() {
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission Required", "Microphone access is needed to record audio.");
+        showAlert({ type: "warning", title: "Permission Required", message: "Microphone access is needed to record audio." });
         return;
       }
 
@@ -876,7 +878,7 @@ export default function AIChatScreen() {
       setReplyTo(null);
     } catch (error) {
       console.error("Failed to stop recording:", error);
-      Alert.alert("Recording Failed", "Could not save the audio.");
+      showAlert({ type: "error", title: "Recording Failed", message: "Could not save the audio." });
     } finally {
       setIsLoading(false);
       setUploadLabel(null);
@@ -948,18 +950,18 @@ export default function AIChatScreen() {
   const handleDownloadImage = useCallback(async (uri: string) => {
     try {
       await saveImageToGallery(uri);
-      Alert.alert("Saved", "Image saved to your gallery.");
+      showAlert({ type: "success", title: "Saved", message: "Image saved to your gallery." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the image.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the image." });
     }
   }, []);
 
   const handleDownloadFile = useCallback(async (uri: string, name?: string) => {
     try {
       await saveFileToDevice(uri, name);
-      Alert.alert("Saved", "File saved to your device.");
+      showAlert({ type: "success", title: "Saved", message: "File saved to your device." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the file.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the file." });
     }
   }, []);
 

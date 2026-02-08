@@ -8,7 +8,6 @@ StyleSheet,
   Platform,
   Modal,
   ScrollView,
-  Alert,
   Linking,
   Animated as RNAnimated,
   Easing,
@@ -31,6 +30,7 @@ import { ChatBackground } from "@/components/ChatBackground";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { useData } from "@/context/DataContext";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -136,6 +136,7 @@ export default function ActivityChatScreen() {
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const { activities } = useData();
   const flatListRef = useRef<FlatList>(null);
 
@@ -413,25 +414,25 @@ export default function ActivityChatScreen() {
   const handleDownloadImage = async (uri: string) => {
     try {
       await saveImageToGallery(uri);
-      Alert.alert("Saved", "Image saved to your gallery.");
+      showAlert({ type: "success", title: "Saved", message: "Image saved to your gallery." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the image.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the image." });
     }
   };
 
   const handleDownloadFile = async (uri: string, name?: string) => {
     try {
       await saveFileToDevice(uri, name);
-      Alert.alert("Saved", "File saved to your device.");
+      showAlert({ type: "success", title: "Saved", message: "File saved to your device." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the file.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the file." });
     }
   };
 
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission needed", "Camera access is required.");
+      showAlert({ type: "warning", title: "Permission needed", message: "Camera access is required." });
       return;
     }
 
@@ -448,7 +449,7 @@ export default function ActivityChatScreen() {
         const uploadResult = await uploadPhoto(result.assets[0].uri);
         handleSendMessage("photo", "Shared a photo", uploadResult.url);
       } catch (error) {
-        Alert.alert("Upload Failed", "Could not upload photo.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo." });
       } finally {
         setIsLoading(false);
       }
@@ -458,7 +459,7 @@ export default function ActivityChatScreen() {
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission needed", "Photo library access is required.");
+      showAlert({ type: "warning", title: "Permission needed", message: "Photo library access is required." });
       return;
     }
 
@@ -475,7 +476,7 @@ export default function ActivityChatScreen() {
         const uploadResult = await uploadPhoto(result.assets[0].uri);
         handleSendMessage("photo", "Shared a photo", uploadResult.url);
       } catch (error) {
-        Alert.alert("Upload Failed", "Could not upload photo.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo." });
       } finally {
         setIsLoading(false);
       }
@@ -506,7 +507,7 @@ export default function ActivityChatScreen() {
           const uploadResult = await uploadFile(file.uri, file.name);
           handleSendMessage("file", `Shared a file: ${file.name}`, undefined, undefined, uploadResult.url, file.name);
         } catch (error) {
-          Alert.alert("Upload Failed", "Could not upload file.");
+          showAlert({ type: "error", title: "Upload Failed", message: "Could not upload file." });
         } finally {
           setIsLoading(false);
         }
@@ -533,7 +534,7 @@ export default function ActivityChatScreen() {
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission Required", "Microphone access is needed to record audio.");
+        showAlert({ type: "warning", title: "Permission Required", message: "Microphone access is needed to record audio." });
         return;
       }
 
@@ -567,7 +568,7 @@ export default function ActivityChatScreen() {
       await handleSendMessage("audio", "Voice message", undefined, undefined, undefined, "voice.m4a", uploadResult.url);
     } catch (error) {
       console.error("Failed to stop recording:", error);
-      Alert.alert("Recording Failed", "Could not save the audio.");
+      showAlert({ type: "error", title: "Recording Failed", message: "Could not save the audio." });
     } finally {
       setIsLoading(false);
     }

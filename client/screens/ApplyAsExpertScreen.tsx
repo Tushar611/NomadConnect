@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Alert,
   Platform,
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -23,6 +22,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Icon } from "@/components/Icon";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { AppColors, Spacing } from "@/constants/theme";
 import { getApiUrl } from "@/lib/query-client";
 
@@ -51,6 +51,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
 
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -92,7 +93,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
         setResumeText(`[PDF uploaded: ${result.assets[0].name}]`);
       }
     } catch (e) {
-      Alert.alert("Error", "Could not pick document");
+      showAlert({ type: "error", title: "Error", message: "Could not pick document" });
     }
   };
 
@@ -109,7 +110,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
         setPortfolioPhotos((prev) => [...prev, ...newPhotos].slice(0, 10));
       }
     } catch (e) {
-      Alert.alert("Error", "Could not pick images");
+      showAlert({ type: "error", title: "Error", message: "Could not pick images" });
     }
   };
 
@@ -123,7 +124,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
         setVideoUri(result.assets[0].uri);
       }
     } catch (e) {
-      Alert.alert("Error", "Could not pick video");
+      showAlert({ type: "error", title: "Error", message: "Could not pick video" });
     }
   };
 
@@ -159,7 +160,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
 
       const data = await response.json();
       if (!response.ok) {
-        Alert.alert("Error", data.error || "Failed to submit");
+        showAlert({ type: "error", title: "Error", message: data.error || "Failed to submit" });
         setSubmitting(false);
         return;
       }
@@ -173,7 +174,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.replace("ExpertStatus");
     } catch (error) {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      showAlert({ type: "error", title: "Error", message: "Something went wrong. Please try again." });
     } finally {
       setSubmitting(false);
     }
@@ -512,7 +513,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
         </ScrollView>
 
         {step > 0 && (
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: theme.background }]}>
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12, backgroundColor: theme.backgroundRoot }]}>
             {step === 5 ? (
               <Pressable
                 style={[styles.submitBtn, !canProceed() && styles.btnDisabled]}

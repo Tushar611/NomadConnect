@@ -9,7 +9,6 @@ StyleSheet,
   Modal,
   Image,
   Linking,
-  Alert,
   Animated as RNAnimated,
   Easing,
   ScrollView,
@@ -36,6 +35,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useData } from "@/context/DataContext";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { Message } from "@/types";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -129,6 +129,7 @@ export default function ChatScreen() {
   const { matchId, matchPhoto } = route.params as { matchId: string; matchName: string; matchPhoto?: string };
   const { messages, sendMessage, editMessage, deleteMessage, toggleMessageReaction, matches } = useData();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const [inputText, setInputText] = useState("");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -235,25 +236,25 @@ export default function ChatScreen() {
   const handleDownloadImage = useCallback(async (uri: string) => {
     try {
       await saveImageToGallery(uri);
-      Alert.alert("Saved", "Image saved to your gallery.");
+      showAlert({ type: "success", title: "Saved", message: "Image saved to your gallery." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the image.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the image." });
     }
   }, []);
 
   const handleDownloadFile = useCallback(async (uri: string, name?: string) => {
     try {
       await saveFileToDevice(uri, name);
-      Alert.alert("Saved", "File saved to your device.");
+      showAlert({ type: "success", title: "Saved", message: "File saved to your device." });
     } catch (error) {
-      Alert.alert("Download Failed", "Could not save the file.");
+      showAlert({ type: "error", title: "Download Failed", message: "Could not save the file." });
     }
   }, []);
 
   const handleTakePhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Camera permission is needed to take photos.");
+      showAlert({ type: "warning", title: "Permission Required", message: "Camera permission is needed to take photos." });
       return;
     }
 
@@ -280,7 +281,7 @@ export default function ChatScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch (error) {
         console.error("Failed to upload photo:", error);
-        Alert.alert("Upload Failed", "Could not upload photo. Please try again.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo. Please try again." });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } finally {
         setIsSending(false);
@@ -292,7 +293,7 @@ export default function ChatScreen() {
   const handleChoosePhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Photo library permission is needed to select photos.");
+      showAlert({ type: "warning", title: "Permission Required", message: "Photo library permission is needed to select photos." });
       return;
     }
 
@@ -319,7 +320,7 @@ export default function ChatScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch (error) {
         console.error("Failed to upload photo:", error);
-        Alert.alert("Upload Failed", "Could not upload photo. Please try again.");
+        showAlert({ type: "error", title: "Upload Failed", message: "Could not upload photo. Please try again." });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } finally {
         setIsSending(false);
@@ -366,7 +367,7 @@ export default function ChatScreen() {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         } catch (error) {
           console.error("Failed to upload file:", error);
-          Alert.alert("Upload Failed", "Could not upload file. Please try again.");
+          showAlert({ type: "error", title: "Upload Failed", message: "Could not upload file. Please try again." });
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } finally {
           setIsSending(false);
@@ -385,7 +386,7 @@ export default function ChatScreen() {
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission Required", "Microphone access is needed to record audio.");
+        showAlert({ type: "warning", title: "Permission Required", message: "Microphone access is needed to record audio." });
         return;
       }
 
@@ -451,7 +452,7 @@ export default function ChatScreen() {
       setReplyTo(null);
     } catch (error) {
       console.error("Failed to stop recording:", error);
-      Alert.alert("Recording Failed", "Could not save the audio.");
+      showAlert({ type: "error", title: "Recording Failed", message: "Could not save the audio." });
     } finally {
       setIsSending(false);
       setUploadLabel(null);

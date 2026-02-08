@@ -6,7 +6,6 @@ import {
   ScrollView,
   Modal,
   Switch,
-  Alert,
   Platform,
   Share,
 } from "react-native";
@@ -26,6 +25,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PhotoPickerModal } from "@/components/PhotoPickerModal";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { useThemeContext } from "@/context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -90,6 +90,7 @@ export default function ProfileScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const { user, logout, updateProfile, refreshProfile } = useAuth();
+  const { showAlert } = useAlert();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { themeMode, setThemeMode, customTheme, setCustomTheme, resetToDefault } = useThemeContext();
     const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -128,10 +129,11 @@ export default function ProfileScreen() {
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Camera permission is needed to take photos."
-      );
+      showAlert({
+        type: "warning",
+        title: "Permission Required",
+        message: "Camera permission is needed to take photos.",
+      });
       return;
     }
     
@@ -151,10 +153,11 @@ export default function ProfileScreen() {
   const handleChooseFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Gallery permission is needed to select photos."
-      );
+      showAlert({
+        type: "warning",
+        title: "Permission Required",
+        message: "Gallery permission is needed to select photos.",
+      });
       return;
     }
     

@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
   Platform,
   ActivityIndicator,
   Modal,
@@ -23,6 +22,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { AppColors, Spacing } from "@/constants/theme";
 import { getApiUrl } from "@/lib/query-client";
 import { purchaseConsultation } from "@/services/revenuecat";
@@ -199,6 +199,7 @@ function BookingModal({
 }) {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
   const [selectedDuration, setSelectedDuration] = useState(60);
   const [notes, setNotes] = useState("");
@@ -227,7 +228,7 @@ function BookingModal({
           setProcessing(false);
           return;
         }
-        Alert.alert("Payment Failed", "There was an issue processing your payment. Please try again.");
+        showAlert({ type: "error", title: "Payment Failed", message: "There was an issue processing your payment. Please try again." });
         setProcessing(false);
         return;
       }
@@ -255,10 +256,10 @@ function BookingModal({
         }
         setStep("success");
       } else {
-        Alert.alert("Booking Error", "Payment was processed but booking failed. Please contact support.");
+        showAlert({ type: "error", title: "Booking Error", message: "Payment was processed but booking failed. Please contact support." });
       }
     } catch (error) {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      showAlert({ type: "error", title: "Error", message: "Something went wrong. Please try again." });
     } finally {
       setProcessing(false);
     }
@@ -486,6 +487,7 @@ function BookingModal({
 export default function ExpertMarketplaceScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { showAlert: showAlertMain } = useAlert();
   const navigation = useNavigation<any>();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
@@ -632,7 +634,7 @@ export default function ExpertMarketplaceScreen() {
         onClose={() => setShowBooking(false)}
         onSuccess={() => {
           setShowBooking(false);
-          Alert.alert("Consultation Booked", "Check your messages for next steps from the expert.");
+          showAlertMain({ type: "success", title: "Consultation Booked", message: "Check your messages for next steps from the expert." });
         }}
       />
     </ThemedView>

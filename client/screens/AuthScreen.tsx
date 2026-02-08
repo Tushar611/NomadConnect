@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ImageBackground,
   Modal,
-  Alert,
   Platform,
   ToastAndroid,
 } from "react-native";
@@ -26,6 +25,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Icon } from "@/components/Icon";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { AppColors, Spacing } from "@/constants/theme";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -56,6 +56,7 @@ type ResetStep = "email" | "otp" | "password" | "success";
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { login, signup, sendPasswordResetOTP, verifyOTP, updatePassword } = useAuth();
+  const { showAlert } = useAlert();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -77,7 +78,7 @@ export default function AuthScreen() {
       return;
     }
 
-    Alert.alert("Sign in failed", message);
+    showAlert({ type: "error", title: "Sign in failed", message });
   };
 
   const handleSubmit = async () => {
