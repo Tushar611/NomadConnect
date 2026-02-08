@@ -1,0 +1,35 @@
+Let me explore the existing RevenueCat setup thoroughly to understand what needs to be updated.
+
+Now let me find the Subscription screen and other files referencing tiers:
+
+Good - I now have a comprehensive understanding of the existing code. The infrastructure is actually already well-built. The tier names internally are free/pro/expert/lifetime but they display as Starter/Explorer/Adventurer/Lifetime. The key thing missing is the RevenueCat API key. Let me also check where features are gated and what other files reference tiers:
+
+The RevenueCat integration is already significantly built out in your codebase - there's a service layer, subscription context, paywall screen, and feature gating components. The main thing missing is your RevenueCat public API key to make it all live. Let me make sure everything is solid and properly wired up.
+
+RevenueCat SDK is already installed. Now let me check the current entitlement names and update them to properly match the Starter/Explorer/Adventurer naming that the user wants in their RevenueCat dashboard:
+
+Now I have a clear picture. The entitlement system uses "Nomad Connect Pro" as the main entitlement ID, but we should update it to properly support all three paid tiers. Let me update the services and context to use clear entitlement IDs matching what the user would configure in their RevenueCat dashboard:
+
+Now update the checkUserEntitlements function to handle all three entitlement tiers:
+
+Now update the export at the bottom to include the new entitlement constants:
+
+Now update the SubscriptionContext to use the updated entitlement names:
+
+Now update the getTierFromEntitlements and getTierFromCustomerInfo functions to use the new entitlement names:
+
+Now update the presentPaywall to use the Explorer entitlement:
+
+Good. Now let me update the tier features text to use the Starter/Explorer/Adventurer naming consistently:
+
+Now let me update the demo purchase logic to use the new naming as well:
+
+Good. Now let me mark task 2 complete and move to verifying feature gating across screens:
+
+Let me check the feature gating screens to make sure they use the subscription system properly:
+
+The feature gating looks properly set up. The isPro and isPremium checks are used across screens, and the PremiumGate component works correctly. Let me also check that the profile screen shows tier badges properly:
+
+Feature gating is properly wired up across all screens. Let me check the LSP for any issues:
+
+No LSP errors. Now let me mark task 3 complete and verify the demo mode works:
