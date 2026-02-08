@@ -2067,6 +2067,21 @@ Badge assignment:
       // Filter out excluded IDs and shuffle
       let filtered = (allProfiles || []).filter(p => !excludeIds.has(p.id));
 
+      // Separate real and mock profiles
+      const realProfiles = filtered.filter(p => !p.id.startsWith('mock_'));
+      const mockProfiles = filtered.filter(p => p.id.startsWith('mock_'));
+
+      // Count total real profiles in DB (excluding current user and already swiped)
+      const realCount = realProfiles.length;
+
+      // If 15+ real profiles available, only show real ones
+      if (realCount >= 15) {
+        filtered = realProfiles;
+      } else {
+        // Mix real + mock
+        filtered = [...realProfiles, ...mockProfiles];
+      }
+
       // Shuffle array (Fisher-Yates)
       for (let i = filtered.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -2089,6 +2104,7 @@ Badge assignment:
           isTravelVerified: row.is_travel_verified || false,
           travelBadge: row.travel_badge || "none",
           createdAt: row.created_at || new Date().toISOString(),
+          isMock: row.id.startsWith('mock_'),
         },
         distance: Math.floor(Math.random() * 50) + 1,
       }));
@@ -2119,8 +2135,11 @@ Badge assignment:
           created_at: now,
         }, { onConflict: 'swiper_id,swiped_id' });
 
+      // Only attempt matching for real users, not mock profiles
+      const isMockProfile = swipedId.startsWith('mock_');
+
       let match = null;
-      if (direction === "right") {
+      if (direction === "right" && !isMockProfile) {
         const { data: reverseSwipe } = await sb
           .from('swipes')
           .select('id')

@@ -9,7 +9,6 @@ import {
   Keyboard,
   ActivityIndicator,
   Platform,
-  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
@@ -21,6 +20,7 @@ import { GradientButton } from "@/components/GradientButton";
 import { useTheme } from "@/hooks/useTheme";
 import { ActivityLocation } from "@/types";
 import { AppColors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
+import { useAlert } from "@/context/AlertContext";
 import { MapView, Marker, PROVIDER_DEFAULT, mapsAvailable, Region } from "@/lib/maps";
 
 interface SearchResult {
@@ -46,6 +46,7 @@ export default function LocationPickerModal({
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const { showAlert } = useAlert();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLocation, setSelectedLocation] = useState<ActivityLocation | null>(
@@ -74,6 +75,17 @@ export default function LocationPickerModal({
       if (abortRef.current) abortRef.current.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (selectedLocation && mapRef.current) {
+      (mapRef.current as any).animateToRegion({
+        latitude: selectedLocation.latitude,
+        longitude: selectedLocation.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 800);
+    }
+  }, [selectedLocation]);
 
   const handleSearch = useCallback((text: string) => {
     setSearchQuery(text);
@@ -147,7 +159,7 @@ export default function LocationPickerModal({
       if (!response.ok) throw new Error("Search failed");
       const data = await response.json();
       if (!data || data.length === 0) {
-        Alert.alert("Location not found", "Please choose a suggestion or try a more specific address.");
+        showAlert({ type: "warning", title: "Location not found", message: "Please choose a suggestion or try a more specific address." });
         return;
       }
       const item = data[0];
@@ -163,11 +175,11 @@ export default function LocationPickerModal({
       setShowSearchResults(false);
       Keyboard.dismiss();
     } catch (error) {
-      Alert.alert("Location not found", "Please choose a suggestion or try a more specific address.");
+      showAlert({ type: "warning", title: "Location not found", message: "Please choose a suggestion or try a more specific address." });
     } finally {
       setIsSearching(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, showAlert]);
 
   const handleSelectSearchResult = useCallback((result: SearchResult) => {
     Haptics.selectionAsync();
@@ -348,19 +360,12 @@ export default function LocationPickerModal({
                   <Icon name="x-circle" size={18} color={theme.textSecondary} />
                 </Pressable>
               ) : null}
+              {searchQuery.length >= 2 ? (
+                <Pressable onPress={handleUseCustomLocation}>
+                  <Icon name="search" size={18} color={AppColors.primary} />
+                </Pressable>
+              ) : null}
             </View>
-
-            <Pressable
-              style={[styles.currentLocationButton, { backgroundColor: theme.backgroundSecondary }]}
-              onPress={handleUseCurrentLocation}
-              disabled={isLoadingUserLocation}
-            >
-              {isLoadingUserLocation ? (
-                <ActivityIndicator size="small" color={AppColors.primary} />
-              ) : (
-                <Icon name="navigation" size={20} color={AppColors.primary} />
-              )}
-            </Pressable>
           </View>
 
           {showSearchResults ? (
@@ -483,6 +488,17 @@ export default function LocationPickerModal({
               <ThemedText type="small" style={[styles.mapHint, { backgroundColor: theme.cardBackground }]}>
                 Drag map to move pin location
               </ThemedText>
+              <Pressable
+                style={[styles.floatingLocationBtn, { backgroundColor: theme.cardBackground }]}
+                onPress={handleUseCurrentLocation}
+                disabled={isLoadingUserLocation}
+              >
+                {isLoadingUserLocation ? (
+                  <ActivityIndicator size="small" color={AppColors.primary} />
+                ) : (
+                  <Icon name="navigation" size={22} color={AppColors.primary} />
+                )}
+              </Pressable>
             </View>
           ) : (
             <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", marginTop: Spacing.xl }}>
@@ -566,12 +582,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 4,
   },
-  currentLocationButton: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
+  floatingLocationBtn: {
+    position: "absolute",
+    bottom: 80,
+    right: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
+    ...Shadows.medium,
+    zIndex: 10,
   },
   searchSection: {
     zIndex: 100,
