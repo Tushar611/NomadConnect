@@ -34,7 +34,7 @@ const SHAKE_THRESHOLD = 2.5;
 const SHAKE_COUNT_REQUIRED = 3;
 const SHAKE_RESET_TIME = 1500;
 
-export type SOSAction = "sms_only" | "sms_and_call_contact" | "sms_and_call_police" | "call_police_only";
+export type SOSAction = "whatsapp_only" | "whatsapp_and_call_contact" | "whatsapp_and_call_police" | "call_police_only";
 
 interface SOSButtonProps {
   visible?: boolean;
@@ -163,6 +163,34 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
     return contact?.policeHelpline || "911";
   };
 
+  const formatPhoneForWhatsApp = (phone: string) => {
+    return phone.replace(/[^0-9]/g, "");
+  };
+
+  const openWhatsApp = async (phone: string, message: string) => {
+    const cleanPhone = formatPhoneForWhatsApp(phone);
+    const whatsappUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    const webWhatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+        return true;
+      } else {
+        await Linking.openURL(webWhatsappUrl);
+        return true;
+      }
+    } catch {
+      try {
+        await Linking.openURL(webWhatsappUrl);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+
   const executeSOSAction = async (action: SOSAction) => {
     if (action !== "call_police_only" && !user?.emergencyContact?.phone) {
       showAlert({
@@ -202,20 +230,22 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
       logIncident(currentLocation, message);
 
       if (action !== "call_police_only" && user?.emergencyContact?.phone) {
-        if (Platform.OS === "web") {
-          const smsUrl = `sms:${user.emergencyContact.phone}?body=${encodeURIComponent(message)}`;
-          Linking.openURL(smsUrl);
-        } else {
-          Linking.openURL(`sms:${user.emergencyContact.phone}?body=${encodeURIComponent(message)}`);
+        const sent = await openWhatsApp(user.emergencyContact.phone, message);
+        if (!sent) {
+          showAlert({
+            type: "warning",
+            title: "WhatsApp Not Available",
+            message: "Could not open WhatsApp. Please make sure it's installed.",
+          });
         }
       }
 
-      if (action === "sms_and_call_contact" && user?.emergencyContact?.phone) {
+      if (action === "whatsapp_and_call_contact" && user?.emergencyContact?.phone) {
         setTimeout(() => {
           Linking.openURL(`tel:${user?.emergencyContact?.phone}`);
-        }, 500);
-      } else if (action === "sms_and_call_police" || action === "call_police_only") {
-        const delay = action === "call_police_only" ? 0 : 500;
+        }, 1500);
+      } else if (action === "whatsapp_and_call_police" || action === "call_police_only") {
+        const delay = action === "call_police_only" ? 0 : 1500;
         setTimeout(() => {
           Linking.openURL(`tel:${policeHelpline}`);
         }, delay);
@@ -225,11 +255,11 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
 
-      if (action === "sms_only") {
+      if (action === "whatsapp_only") {
         showAlert({
           type: "success",
           title: "Alert Sent",
-          message: "Emergency alert has been sent to your contact.",
+          message: "WhatsApp message opened for your emergency contact.",
         });
       }
     } catch (error) {
@@ -311,38 +341,38 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
 
             <View style={styles.actionList}>
               <Pressable
-                style={[styles.actionRow, { backgroundColor: AppColors.primary }]}
-                onPress={() => executeSOSAction("sms_and_call_contact")}
+                style={[styles.actionRow, { backgroundColor: "#25D366" }]}
+                onPress={() => executeSOSAction("whatsapp_and_call_contact")}
                 disabled={isSending}
                 testID="button-alert-and-call-contact"
               >
                 <Icon name="phone" size={18} color="#FFFFFF" />
                 <ThemedText type="body" style={styles.actionText}>
-                  {isSending ? "Sending..." : "Alert + Call Contact"}
+                  {isSending ? "Sending..." : "WhatsApp + Call Contact"}
                 </ThemedText>
               </Pressable>
 
               <Pressable
                 style={[styles.actionRow, { backgroundColor: AppColors.danger }]}
-                onPress={() => executeSOSAction("sms_and_call_police")}
+                onPress={() => executeSOSAction("whatsapp_and_call_police")}
                 disabled={isSending}
                 testID="button-alert-and-call-police"
               >
                 <Icon name="phone" size={18} color="#FFFFFF" />
                 <ThemedText type="body" style={styles.actionText}>
-                  Call {getPoliceHelpline()}
+                  WhatsApp + Call {getPoliceHelpline()}
                 </ThemedText>
               </Pressable>
 
               <Pressable
                 style={[styles.actionRow, { backgroundColor: theme.backgroundSecondary }]}
-                onPress={() => executeSOSAction("sms_only")}
+                onPress={() => executeSOSAction("whatsapp_only")}
                 disabled={isSending}
                 testID="button-send-alert"
               >
                 <Icon name="message-circle" size={18} color={theme.text} />
                 <ThemedText type="body" style={[styles.actionText, { color: theme.text }]}>
-                  Silent Alert Only
+                  WhatsApp Only
                 </ThemedText>
               </Pressable>
             </View>
