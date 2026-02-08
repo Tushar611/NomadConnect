@@ -1001,8 +1001,8 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
   });
 
   // SOS Emergency endpoints
-  app.post("/api/sos/log", (req: Request, res: Response) => {
-    const { userId, userName, location, emergencyContact, timestamp } = req.body;
+  app.post("/api/sos/log", async (req: Request, res: Response) => {
+    const { userId, userName, location, emergencyContact, timestamp, message } = req.body;
     
     const incident: SOSIncident = {
       id: `sos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -1016,6 +1016,37 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     
     sosIncidents.push(incident);
     console.log("[SOS] Emergency incident logged:", incident);
+
+    if (emergencyContact?.email && message) {
+      try {
+        const emailjsServiceId = process.env.EMAILJS_SERVICE_ID;
+        const emailjsTemplateId = process.env.EMAILJS_TEMPLATE_ID;
+        const emailjsPublicKey = process.env.EMAILJS_PUBLIC_KEY;
+        const emailjsPrivateKey = process.env.EMAILJS_PRIVATE_KEY;
+
+        if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
+          await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_id: emailjsServiceId,
+              template_id: emailjsTemplateId,
+              user_id: emailjsPublicKey,
+              accessToken: emailjsPrivateKey,
+              template_params: {
+                to_email: emergencyContact.email,
+                to_name: emergencyContact.name || "Emergency Contact",
+                from_name: "Nomad Connect SOS",
+                message: message,
+              },
+            }),
+          });
+          console.log("[SOS] Emergency email sent to:", emergencyContact.email);
+        }
+      } catch (emailErr) {
+        console.error("[SOS] Failed to send emergency email:", emailErr);
+      }
+    }
     
     res.json({ success: true, incidentId: incident.id });
   });

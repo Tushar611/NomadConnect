@@ -508,8 +508,34 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const swipeRight = async (userId: string): Promise<Match | null> => {
     if (!user) return null;
 
+    const swipedProfile = profiles.find((p) => p.user.id === userId);
     setProfiles((prev) => prev.filter((p) => p.user.id !== userId));
     setLikedIds(prev => new Set(prev).add(userId));
+
+    const isMockProfile = userId.startsWith('mock_');
+    if (isMockProfile && swipedProfile) {
+      const matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const instantMatch: Match = {
+        id: matchId,
+        matchedUserId: userId,
+        matchedUser: swipedProfile.user,
+        createdAt: new Date().toISOString(),
+      };
+      const updatedMatches = [...matches, instantMatch];
+      setMatches(updatedMatches);
+      AsyncStorage.setItem(
+        `${MATCHES_KEY}_${user.id}`,
+        JSON.stringify(updatedMatches)
+      ).catch(() => {});
+
+      fetch(new URL("/api/swipes", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ swiperId: user.id, swipedId: userId, direction: "right" }),
+      }).catch(() => {});
+
+      return instantMatch;
+    }
 
     try {
       const baseUrl = getApiUrl();

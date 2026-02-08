@@ -18,7 +18,6 @@ import Animated, {
   FadeOut,
 } from "react-native-reanimated";
 import * as Location from "expo-location";
-import * as SMS from "expo-sms";
 import * as Haptics from "expo-haptics";
 import { Accelerometer } from "expo-sensors";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -141,7 +140,7 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
     return `https://maps.google.com/maps?q=${lat},${lng}`;
   }, []);
 
-  const logIncident = async (location: Location.LocationObject | null) => {
+  const logIncident = async (location: Location.LocationObject | null, message?: string) => {
     try {
       await apiRequest("POST", "/api/sos/log", {
         userId: user?.id,
@@ -152,6 +151,7 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
         } : null,
         timestamp: new Date().toISOString(),
         emergencyContact: user?.emergencyContact,
+        message,
       });
     } catch (error) {
       console.log("Failed to log incident:", error);
@@ -199,29 +199,38 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
 
       message += `\n\nSent via Nomad Connect SOS`;
 
+      logIncident(currentLocation, message);
+
       if (action !== "call_police_only" && user?.emergencyContact?.phone) {
-        const isAvailable = await SMS.isAvailableAsync();
-        if (isAvailable) {
-          await SMS.sendSMSAsync(
-            [user.emergencyContact.phone],
-            message
-          );
-        } else if (Platform.OS === "web") {
+        if (Platform.OS === "web") {
           const smsUrl = `sms:${user.emergencyContact.phone}?body=${encodeURIComponent(message)}`;
-          await Linking.openURL(smsUrl);
+          Linking.openURL(smsUrl);
+        } else {
+          Linking.openURL(`sms:${user.emergencyContact.phone}?body=${encodeURIComponent(message)}`);
         }
       }
 
-      logIncident(currentLocation);
-
       if (action === "sms_and_call_contact" && user?.emergencyContact?.phone) {
-        Linking.openURL(`tel:${user.emergencyContact.phone}`);
+        setTimeout(() => {
+          Linking.openURL(`tel:${user?.emergencyContact?.phone}`);
+        }, 500);
       } else if (action === "sms_and_call_police" || action === "call_police_only") {
-        Linking.openURL(`tel:${policeHelpline}`);
+        const delay = action === "call_police_only" ? 0 : 500;
+        setTimeout(() => {
+          Linking.openURL(`tel:${policeHelpline}`);
+        }, delay);
       }
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+
+      if (action === "sms_only") {
+        showAlert({
+          type: "success",
+          title: "Alert Sent",
+          message: "Emergency alert has been sent to your contact.",
+        });
       }
     } catch (error) {
       console.error("SOS Error:", error);

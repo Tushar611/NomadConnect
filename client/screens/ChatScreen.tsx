@@ -15,9 +15,8 @@ StyleSheet,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { RouteProp, useRoute } from "@react-navigation/native";
+import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import { Icon } from "@/components/Icon";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
@@ -123,7 +122,9 @@ const EXTRA_REACTIONS = [
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
+  const navigation = useNavigation();
+  const CUSTOM_HEADER_HEIGHT = 56;
+  const headerHeight = (Platform.OS === "web" ? 67 : insets.top) + CUSTOM_HEADER_HEIGHT;
   const { theme } = useTheme();
   const route = useRoute<ChatRouteProp>();
   const { matchId, matchPhoto } = route.params as { matchId: string; matchName: string; matchPhoto?: string };
@@ -847,7 +848,14 @@ export default function ChatScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      <View style={[styles.chatHeaderOverlay, { paddingTop: Platform.OS === "web" ? 67 : insets.top }]} pointerEvents="box-none">
+      <View style={[styles.chatHeaderOverlay, { paddingTop: Platform.OS === "web" ? 67 : insets.top }]}>
+        <Pressable
+          style={styles.chatHeaderBack}
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+        >
+          <Icon name="chevron-left" size={28} color="#1A1A1A" />
+        </Pressable>
         <Pressable
           style={styles.chatHeaderProfile}
           onPress={() => setShowProfileModal(true)}
@@ -1752,13 +1760,24 @@ const styles = StyleSheet.create({
   chatHeaderOverlay: {
     position: "absolute",
     top: 0,
-    left: 60,
+    left: 0,
     right: 0,
     zIndex: 100,
-    paddingRight: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
     paddingBottom: 10,
+    backgroundColor: "rgba(255,255,255,0.92)",
+  },
+  chatHeaderBack: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 2,
   },
   chatHeaderProfile: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

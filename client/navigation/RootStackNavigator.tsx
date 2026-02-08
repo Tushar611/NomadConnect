@@ -155,12 +155,7 @@ export default function RootStackNavigator() {
               name="Chat"
               component={ChatScreen}
               options={({ route }) => ({
-                headerTitle: "",
-                headerBackTitle: "Back",
-                headerTransparent: true,
-                headerStyle: { backgroundColor: "transparent" },
-                headerTintColor: "#000000",
-                headerShadowVisible: false,
+                headerShown: false,
               })}
             />
             <Stack.Screen
