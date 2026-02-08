@@ -8,7 +8,6 @@ import {
   Modal,
   ScrollView,
   Share,
-  Alert,
   Dimensions,
   TextInput,
   Platform,
@@ -39,6 +38,7 @@ import MapScreen from "@/screens/MapScreen";
 import LocationPickerModal from "@/components/LocationPickerModal";
 import SafetyRatingModal from "@/components/SafetyRatingModal";
 import { PickerModal } from "@/components/PickerModal";
+import { useAlert } from "@/context/AlertContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -68,6 +68,7 @@ export default function ActivitiesScreen() {
   const { theme, isDark } = useTheme();
   const { activities, isLoading, refreshData, createActivity, joinActivity, deleteActivity } = useData();
   const { user, isAuthenticated } = useAuth();
+  const { showAlert } = useAlert();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -292,30 +293,27 @@ export default function ActivitiesScreen() {
         if (Platform.OS === "web") {
           window.alert("Failed to delete activity");
         } else {
-          Alert.alert("Error", "Failed to delete activity");
+          showAlert({ type: "error", title: "Error", message: "Failed to delete activity" });
         }
       }
     };
 
     if (Platform.OS === "web") {
-      // Use window.confirm on web since Alert.alert doesn't render
+      // Use window.confirm on web
       const confirmed = window.confirm("Are you sure you want to delete this activity? This cannot be undone.");
       if (confirmed) {
         await performDelete();
       }
     } else {
-      Alert.alert(
-        "Delete Activity",
-        "Are you sure you want to delete this activity? This cannot be undone.",
-        [
+      showAlert({
+        type: "confirm",
+        title: "Delete Activity",
+        message: "Are you sure you want to delete this activity? This cannot be undone.",
+        buttons: [
           { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: performDelete,
-          },
-        ]
-      );
+          { text: "Delete", style: "destructive", onPress: performDelete },
+        ],
+      });
     }
   };
 
@@ -331,7 +329,7 @@ export default function ActivitiesScreen() {
       });
 
       if (result.action === Share.sharedAction) {
-        Alert.alert("Invite Sent!", "Your friend will receive the invitation.");
+        showAlert({ type: "success", title: "Invite Sent!", message: "Your friend will receive the invitation." });
       }
     } catch (error) {
       console.error("Error sharing:", error);

@@ -9,13 +9,12 @@ import {
   Platform,
   Dimensions,
   Linking,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { Image } from "expo-image";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MapView, Marker, Callout, PROVIDER_GOOGLE, mapsAvailable, Region } from "@/lib/maps";
+import { MapView, Marker, Callout, mapsAvailable, Region } from "@/lib/maps";
 import { Icon } from "@/components/Icon";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeIn, FadeOut, SlideInDown } from "react-native-reanimated";
@@ -26,6 +25,7 @@ import { GradientButton } from "@/components/GradientButton";
 import { useTheme } from "@/hooks/useTheme";
 import { useData } from "@/context/DataContext";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { Activity, User } from "@/types";
 import { AppColors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 
@@ -93,6 +93,7 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
   const { theme, isDark } = useTheme();
   const { activities, profiles } = useData();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const mapRef = useRef<typeof MapView>(null);
 
   const [filter, setFilter] = useState<FilterType>(initialFilter);
@@ -410,10 +411,10 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (savedSpots.includes(spotId)) {
       setSavedSpots(savedSpots.filter(id => id !== spotId));
-      Alert.alert("Removed", `${spotName} removed from saved spots`);
+      showAlert({ type: "info", title: "Removed", message: `${spotName} removed from saved spots` });
     } else {
       setSavedSpots([...savedSpots, spotId]);
-      Alert.alert("Saved!", `${spotName} added to your saved spots`);
+      showAlert({ type: "success", title: "Saved!", message: `${spotName} added to your saved spots` });
     }
   };
 
@@ -647,7 +648,7 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
       <MapView
         ref={mapRef}
         style={styles.map}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+        provider={undefined}
         initialRegion={region}
         onRegionChangeComplete={setRegion}
         showsUserLocation

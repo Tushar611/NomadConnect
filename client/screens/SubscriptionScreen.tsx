@@ -6,7 +6,6 @@ import {
   Pressable,
   ActivityIndicator,
   Dimensions,
-  Alert,
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +19,7 @@ import { Icon } from '@/components/Icon';
 import { useTheme } from '@/hooks/useTheme';
 import { useSubscription, SubscriptionTier } from '@/context/SubscriptionContext';
 import { AppColors, Spacing, BorderRadius } from '@/constants/theme';
+import { useAlert } from "@/context/AlertContext";
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -78,6 +78,7 @@ export default function SubscriptionScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const {
     tier: currentTier,
     purchasePackage,
@@ -130,10 +131,7 @@ export default function SubscriptionScreen() {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-      Alert.alert(
-        "Purchase Failed",
-        error?.message || "Something went wrong. Please try again.",
-      );
+      showAlert({ type: "error", title: "Purchase Failed", message: error?.message || "Something went wrong. Please try again." });
     } finally {
       setIsPurchasing(false);
     }
@@ -146,12 +144,12 @@ export default function SubscriptionScreen() {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      Alert.alert("Restored", "Your purchases have been restored successfully.");
+      showAlert({ type: "success", title: "Restored", message: "Your purchases have been restored successfully." });
     } catch (error) {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-      Alert.alert("Restore Failed", "Could not restore purchases. Please try again.");
+      showAlert({ type: "error", title: "Restore Failed", message: "Could not restore purchases. Please try again." });
     } finally {
       setIsRestoring(false);
     }

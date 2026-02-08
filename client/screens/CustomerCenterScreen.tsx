@@ -4,7 +4,6 @@ import {
   View,
   ScrollView,
   Pressable,
-  Alert,
   ActivityIndicator,
   Linking,
   Platform,
@@ -19,6 +18,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
+import { useAlert } from "@/context/AlertContext";
 import { LinearGradient } from "expo-linear-gradient";
 import { getCustomerInfo } from "@/services/revenuecat";
 
@@ -26,6 +26,7 @@ export default function CustomerCenterScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const {
     tier,
     customerInfo,
@@ -61,9 +62,9 @@ export default function CustomerCenterScreen() {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      Alert.alert("Restored", "Your purchases have been restored.");
+      showAlert({ type: "success", title: "Restored", message: "Your purchases have been restored." });
     } catch (error) {
-      Alert.alert("Error", "Could not restore purchases.");
+      showAlert({ type: "error", title: "Error", message: "Could not restore purchases." });
     } finally {
       setIsRestoring(false);
     }
@@ -93,10 +94,7 @@ export default function CustomerCenterScreen() {
         "https://play.google.com/store/account/subscriptions",
       );
     } else {
-      Alert.alert(
-        "Manage Subscription",
-        "Open your app store to manage your subscription.",
-      );
+      showAlert({ type: "info", title: "Manage Subscription", message: "Open your app store to manage your subscription." });
     }
   };
 

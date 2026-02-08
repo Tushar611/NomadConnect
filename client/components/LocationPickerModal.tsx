@@ -21,7 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { ActivityLocation } from "@/types";
 import { AppColors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { useAlert } from "@/context/AlertContext";
-import { MapView, Marker, PROVIDER_DEFAULT, mapsAvailable, Region } from "@/lib/maps";
+import { MapView, Marker, mapsAvailable, Region } from "@/lib/maps";
 
 interface SearchResult {
   id: string;
@@ -429,7 +429,7 @@ export default function LocationPickerModal({
               <MapView
                 ref={mapRef}
                 style={styles.map}
-                provider={Platform.OS === "android" ? PROVIDER_DEFAULT : undefined}
+                provider={undefined}
                 initialRegion={selectedLocation ? {
                   latitude: selectedLocation.latitude,
                   longitude: selectedLocation.longitude,

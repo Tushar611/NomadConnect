@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   TextInput,
-  Alert,
   Platform,
   Dimensions,
   ActivityIndicator,
@@ -30,6 +29,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { getApiUrl } from "@/lib/query-client";
 import { uploadPhoto } from "@/lib/upload";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
@@ -54,6 +54,7 @@ interface Props {
 export default function TravelVerificationScreen({ onVerified, onExit }: Props) {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
 
   const [step, setStep] = useState<Step>("welcome");
@@ -98,7 +99,7 @@ export default function TravelVerificationScreen({ onVerified, onExit }: Props) 
   const pickImage = async (isSecondary: boolean) => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
-      Alert.alert("Permission Required", "Please allow access to your photos to continue.");
+      showAlert({ type: "warning", title: "Permission Required", message: "Please allow access to your photos to continue." });
       return;
     }
 
@@ -120,7 +121,7 @@ export default function TravelVerificationScreen({ onVerified, onExit }: Props) 
 
   const handleSubmit = async () => {
     if (!primaryPhoto || !answer1.trim() || !answer2.trim()) {
-      Alert.alert("Missing Info", "Please upload at least one photo and answer the first two questions.");
+      showAlert({ type: "warning", title: "Missing Info", message: "Please upload at least one photo and answer the first two questions." });
       return;
     }
 
