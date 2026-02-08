@@ -61,7 +61,7 @@ const TIERS: TierConfig[] = [
     gradient: ['#A78BFA', '#8B5CF6', '#7C3AED'],
     glowColor: '#8B5CF6',
     tagline: 'The ultimate experience',
-    packageId: '$rc_annual',
+    packageId: 'adventurer_monthly',
   },
   {
     id: 'lifetime',
@@ -102,9 +102,6 @@ export default function SubscriptionScreen() {
         (p) => p.identifier === tierConfig.packageId,
       );
       if (pkg) {
-        if (tierConfig.id === 'adventurer') {
-          return pkg.product.priceString + "/yr";
-        }
         if (tierConfig.id === 'lifetime') {
           return pkg.product.priceString;
         }
