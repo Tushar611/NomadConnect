@@ -3,14 +3,6 @@ import { createServer, type Server } from "node:http";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { Pool } from "pg";
-
-// Direct PostgreSQL connection to Supabase
-const pool = new Pool({
-  connectionString: process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
 
 async function callGroqChat(messages: { role: string; content: string }[]) {
   if (!groqApiKey) {
@@ -43,6 +35,32 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabaseAdmin = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false }
 }) : null;
+
+function getSupabase() {
+  if (!supabaseAdmin) throw new Error('Supabase client not configured');
+  return supabaseAdmin;
+}
+
+async function checkSupabaseTables() {
+  if (!supabaseAdmin) {
+    console.log("[DB] Supabase client not configured - skipping table check");
+    return;
+  }
+  const tables = [
+    'ai_chat_sessions', 'activities', 'activity_chat_messages',
+    'user_profiles', 'user_locations', 'compatibility_history',
+    'swipes', 'matches', 'travel_verification',
+    'expert_applications', 'consultation_bookings'
+  ];
+  for (const table of tables) {
+    const { error } = await supabaseAdmin.from(table).select('id').limit(1);
+    if (error) {
+      console.log(`[DB] Table '${table}': NOT accessible (${error.message})`);
+    } else {
+      console.log(`[DB] Table '${table}': OK`);
+    }
+  }
+}
 
 // In-memory OTP storage
 interface OTPEntry {
@@ -201,6 +219,9 @@ const COST_ESTIMATOR_PROMPT = `You are a van conversion cost estimator for Nomad
 Be realistic with current market prices. Consider DIY vs professional installation costs.`;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+
+  checkSupabaseTables().catch(err => console.error("[DB] Table check failed:", err));
+
   // Health check
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({ ok: true, service: "nomad-connect-api" });
@@ -288,7 +309,7 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     res.status(501).json({ error: "Image generation is not available in this build." });
   });
 
-  // ==================== AI CHAT SESSIONS (Direct PostgreSQL) ====================
+  // ==================== AI CHAT SESSIONS (Supabase) ====================
 
   // Get all chat sessions for a user
   app.get("/api/ai/sessions/:userId", async (req: Request, res: Response) => {
@@ -299,17 +320,17 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
     
     try {
-      const result = await pool.query(
-        `SELECT id, user_id, title, messages, created_at, updated_at 
-         FROM ai_chat_sessions 
-         WHERE user_id = $1 
-         ORDER BY updated_at DESC`,
-        [userId]
-      );
-      res.json(result.rows);
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('ai_chat_sessions')
+        .select('id, user_id, title, messages, created_at, updated_at')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      res.json(data || []);
     } catch (error) {
       console.error("Failed to get chat sessions:", error);
-      res.status(500).json({ error: "Failed to get chat sessions" });
+      res.json([]);
     }
   });
 
@@ -322,13 +343,22 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
     
     try {
-      const result = await pool.query(
-        `INSERT INTO ai_chat_sessions (id, user_id, title, messages, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW())
-         RETURNING id, user_id, title, messages, created_at, updated_at`,
-        [id, userId, title || "New Chat", JSON.stringify(messages || [])]
-      );
-      res.json(result.rows[0]);
+      const sb = getSupabase();
+      const now = new Date().toISOString();
+      const { data, error } = await sb
+        .from('ai_chat_sessions')
+        .insert({
+          id,
+          user_id: userId,
+          title: title || "New Chat",
+          messages: messages || [],
+          created_at: now,
+          updated_at: now,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      res.json(data);
     } catch (error) {
       console.error("Failed to create chat session:", error);
       res.status(500).json({ error: "Failed to create chat session" });
@@ -345,19 +375,26 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
     
     try {
-      const result = await pool.query(
-        `UPDATE ai_chat_sessions 
-         SET title = $1, messages = $2, updated_at = NOW()
-         WHERE id = $3
-         RETURNING id, user_id, title, messages, created_at, updated_at`,
-        [title, JSON.stringify(messages), sessionId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('ai_chat_sessions')
+        .update({
+          title,
+          messages,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sessionId)
+        .select()
+        .single();
       
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Session not found" });
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: "Session not found" });
+        }
+        throw error;
       }
       
-      res.json(result.rows[0]);
+      res.json(data);
     } catch (error) {
       console.error("Failed to update chat session:", error);
       res.status(500).json({ error: "Failed to update chat session" });
@@ -373,12 +410,15 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
     
     try {
-      const result = await pool.query(
-        `DELETE FROM ai_chat_sessions WHERE id = $1 RETURNING id`,
-        [sessionId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('ai_chat_sessions')
+        .delete()
+        .eq('id', sessionId)
+        .select('id');
       
-      if (result.rows.length === 0) {
+      if (error) throw error;
+      if (!data || data.length === 0) {
         return res.status(404).json({ error: "Session not found" });
       }
       
@@ -391,17 +431,19 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
 
   // ==================== ACTIVITY CHAT ROUTES ====================
 
-  // ==================== ACTIVITIES (PostgreSQL) ====================
+  // ==================== ACTIVITIES (Supabase) ====================
 
   app.get("/api/activities", async (_req: Request, res: Response) => {
     try {
+      const sb = getSupabase();
       const now = new Date().toISOString();
-      const result = await pool.query(
-        `SELECT * FROM activities WHERE date >= $1 ORDER BY date ASC`,
-        [now]
-      );
-      // Map database columns to Activity type
-      const activities = result.rows.map((row: any) => ({
+      const { data, error } = await sb
+        .from('activities')
+        .select('*')
+        .gte('date', now)
+        .order('date', { ascending: true });
+      if (error) throw error;
+      const activities = (data || []).map((row: any) => ({
         id: row.id,
         title: row.title,
         description: row.description,
@@ -421,7 +463,6 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
       res.json(activities);
     } catch (error) {
       console.error("Failed to get activities:", error);
-      // Fallback to in-memory store
       res.json(activitiesStore);
     }
   });
@@ -437,27 +478,26 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     const now = new Date().toISOString();
 
     try {
-      await pool.query(
-        `INSERT INTO activities (id, title, description, category, date, location, latitude, longitude, host_id, host_data, attendee_ids, attendees_data, max_attendees, image_url, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        [
-          activityId,
-          activity.title || "New Activity",
-          activity.description || "",
-          activity.type || "other",
-          activity.date || now,
-          activity.location || "TBD",
-          activity.latitude?.toString() || null,
-          activity.longitude?.toString() || null,
-          user.id,
-          JSON.stringify(user),
-          JSON.stringify([]),
-          JSON.stringify([]),
-          activity.maxAttendees?.toString() || null,
-          activity.imageUrl || null,
-          now,
-        ]
-      );
+      const sb = getSupabase();
+      await sb
+        .from('activities')
+        .insert({
+          id: activityId,
+          title: activity.title || "New Activity",
+          description: activity.description || "",
+          category: activity.type || "other",
+          date: activity.date || now,
+          location: activity.location || "TBD",
+          latitude: activity.latitude?.toString() || null,
+          longitude: activity.longitude?.toString() || null,
+          host_id: user.id,
+          host_data: user,
+          attendee_ids: [],
+          attendees_data: [],
+          max_attendees: activity.maxAttendees?.toString() || null,
+          image_url: activity.imageUrl || null,
+          created_at: now,
+        });
 
       const newActivity: Activity = {
         id: activityId,
@@ -483,7 +523,6 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
       res.status(201).json(newActivity);
     } catch (error) {
       console.error("Failed to create activity in database:", error);
-      // Fallback to in-memory store
       const newActivity: Activity = {
         id: activityId,
         title: activity.title || "New Activity",
@@ -518,30 +557,33 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
 
     try {
-      // Get current activity from database
-      const result = await pool.query(`SELECT * FROM activities WHERE id = $1`, [activityId]);
-      if (result.rows.length === 0) {
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activities')
+        .select('*')
+        .eq('id', activityId)
+        .single();
+      if (error || !data) {
         return res.status(404).json({ error: "Activity not found" });
       }
 
-      const activity = result.rows[0];
-      const attendeeIds = activity.attendee_ids || [];
-      const attendeesData = activity.attendees_data || [];
+      const attendeeIds = data.attendee_ids || [];
+      const attendeesData = data.attendees_data || [];
 
       if (!attendeeIds.includes(user.id)) {
         attendeeIds.push(user.id);
         attendeesData.push(user);
 
-        await pool.query(
-          `UPDATE activities SET attendee_ids = $1, attendees_data = $2 WHERE id = $3`,
-          [JSON.stringify(attendeeIds), JSON.stringify(attendeesData), activityId]
-        );
+        const { error: updateError } = await sb
+          .from('activities')
+          .update({ attendee_ids: attendeeIds, attendees_data: attendeesData })
+          .eq('id', activityId);
+        if (updateError) throw updateError;
       }
 
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to join activity:", error);
-      // Fallback to in-memory store
       const activity = activitiesStore.find((a) => a.id === activityId);
       if (!activity) {
         return res.status(404).json({ error: "Activity not found" });
@@ -559,22 +601,28 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     const { userId } = req.body as { userId?: string };
 
     try {
-      // Check if activity exists and user is host
-      const result = await pool.query(`SELECT * FROM activities WHERE id = $1`, [activityId]);
-      if (result.rows.length === 0) {
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activities')
+        .select('*')
+        .eq('id', activityId)
+        .single();
+      if (error || !data) {
         return res.status(404).json({ error: "Activity not found" });
       }
 
-      const activity = result.rows[0];
-      if (userId && activity.host_id !== userId) {
+      if (userId && data.host_id !== userId) {
         return res.status(403).json({ error: "Only the host can delete the activity" });
       }
 
-      await pool.query(`DELETE FROM activities WHERE id = $1`, [activityId]);
+      const { error: deleteError } = await sb
+        .from('activities')
+        .delete()
+        .eq('id', activityId);
+      if (deleteError) throw deleteError;
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to delete activity:", error);
-      // Fallback to in-memory store
       const idx = activitiesStore.findIndex((a) => a.id === activityId);
       if (idx === -1) {
         return res.status(404).json({ error: "Activity not found" });
@@ -588,17 +636,19 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
   });
 
-  // Get messages for an activity (PostgreSQL)
+  // Get messages for an activity (Supabase)
   app.get("/api/activities/:activityId/messages", async (req: Request, res: Response) => {
     const { activityId } = req.params;
     try {
-      const result = await pool.query(
-        `SELECT * FROM activity_chat_messages 
-         WHERE activity_id = $1 AND deleted_at IS NULL 
-         ORDER BY created_at ASC`,
-        [activityId]
-      );
-      const messages = result.rows.map(row => ({
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activity_chat_messages')
+        .select('*')
+        .eq('activity_id', activityId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      const messages = (data || []).map((row: any) => ({
         id: row.id,
         activityId: row.activity_id,
         senderId: row.sender_id,
@@ -613,41 +663,53 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
         audioDuration: row.audio_duration ? parseFloat(row.audio_duration) : undefined,
         replyTo: row.reply_to,
         location: row.location,
-        isPinned: row.is_pinned === "true",
-        isModeratorMessage: row.is_moderator_message === "true",
+        isPinned: row.is_pinned === true || row.is_pinned === "true",
+        isModeratorMessage: row.is_moderator_message === true || row.is_moderator_message === "true",
         reactions: row.reactions || {},
         isEdited: !!row.edited_at,
-        createdAt: row.created_at?.toISOString(),
-        deletedAt: row.deleted_at?.toISOString(),
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at,
       }));
       res.json(messages);
     } catch (error) {
       console.error("Failed to get activity messages:", error);
-      res.status(500).json({ error: "Failed to get messages" });
+      res.json([]);
     }
   });
 
-  // Send a message to activity chat (PostgreSQL)
+  // Send a message to activity chat (Supabase)
   app.post("/api/activities/:activityId/messages", async (req: Request, res: Response) => {
     const { activityId } = req.params;
     const { senderId, senderName, senderPhoto, type, content, photoUrl, fileUrl, fileName, audioUrl, audioDuration, replyTo, location, isModeratorMessage } = req.body;
 
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
     
     try {
-      await pool.query(
-        `INSERT INTO activity_chat_messages 
-         (id, activity_id, sender_id, sender_name, sender_photo, type, content, 
-          photo_url, file_url, file_name, audio_url, audio_duration, 
-          reply_to, location, is_pinned, is_moderator_message, reactions, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())`,
-        [
-          messageId, activityId, senderId, senderName, senderPhoto || '',
-          type || "text", content, photoUrl, fileUrl, fileName, audioUrl,
-          audioDuration?.toString(), JSON.stringify(replyTo), JSON.stringify(location),
-          "false", isModeratorMessage ? "true" : "false", JSON.stringify({})
-        ]
-      );
+      const sb = getSupabase();
+      const { error } = await sb
+        .from('activity_chat_messages')
+        .insert({
+          id: messageId,
+          activity_id: activityId,
+          sender_id: senderId,
+          sender_name: senderName,
+          sender_photo: senderPhoto || '',
+          type: type || "text",
+          content,
+          photo_url: photoUrl || null,
+          file_url: fileUrl || null,
+          file_name: fileName || null,
+          audio_url: audioUrl || null,
+          audio_duration: audioDuration?.toString() || null,
+          reply_to: replyTo || null,
+          location: location || null,
+          is_pinned: false,
+          is_moderator_message: isModeratorMessage || false,
+          reactions: {},
+          created_at: now,
+        });
+      if (error) throw error;
 
       const message: ActivityChatMessage = {
         id: messageId,
@@ -667,7 +729,7 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
         isPinned: false,
         isModeratorMessage: isModeratorMessage || false,
         reactions: {},
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       };
 
       res.status(201).json(message);
@@ -677,30 +739,32 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
   });
 
-  // Pin/unpin a message (moderator only) - PostgreSQL
+  // Pin/unpin a message (moderator only) - Supabase
   app.patch("/api/activities/:activityId/messages/:messageId/pin", async (req: Request, res: Response) => {
     const { messageId } = req.params;
     const { pin } = req.body;
 
     try {
-      const result = await pool.query(
-        `UPDATE activity_chat_messages 
-         SET is_pinned = $1 
-         WHERE id = $2 
-         RETURNING *`,
-        [pin ? "true" : "false", messageId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activity_chat_messages')
+        .update({ is_pinned: !!pin })
+        .eq('id', messageId)
+        .select()
+        .single();
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Message not found" });
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: "Message not found" });
+        }
+        throw error;
       }
 
-      const row = result.rows[0];
       res.json({
-        id: row.id,
-        activityId: row.activity_id,
-        isPinned: row.is_pinned === "true",
-        content: row.content,
+        id: data.id,
+        activityId: data.activity_id,
+        isPinned: data.is_pinned,
+        content: data.content,
       });
     } catch (error) {
       console.error("Failed to pin message:", error);
@@ -708,29 +772,31 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
   });
 
-  // Edit a message (owner only) - PostgreSQL
+  // Edit a message (owner only) - Supabase
   app.put("/api/activities/:activityId/messages/:messageId", async (req: Request, res: Response) => {
     const { messageId } = req.params;
     const { content } = req.body;
 
     try {
-      const result = await pool.query(
-        `UPDATE activity_chat_messages 
-         SET content = $1, edited_at = NOW() 
-         WHERE id = $2 
-         RETURNING *`,
-        [content, messageId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activity_chat_messages')
+        .update({ content, edited_at: new Date().toISOString() })
+        .eq('id', messageId)
+        .select()
+        .single();
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Message not found" });
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: "Message not found" });
+        }
+        throw error;
       }
 
-      const row = result.rows[0];
       res.json({
-        id: row.id,
-        activityId: row.activity_id,
-        content: row.content,
+        id: data.id,
+        activityId: data.activity_id,
+        content: data.content,
         isEdited: true,
       });
     } catch (error) {
@@ -739,7 +805,7 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
   });
 
-  // React to a message - PostgreSQL
+  // React to a message - Supabase
   app.post("/api/activities/:activityId/messages/:messageId/react", async (req: Request, res: Response) => {
     const { messageId } = req.params;
     const { userId, emoji } = req.body as { userId?: string; emoji?: string };
@@ -749,17 +815,21 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
 
     try {
-      // Get current reactions
-      const getResult = await pool.query(
-        `SELECT reactions FROM activity_chat_messages WHERE id = $1`,
-        [messageId]
-      );
+      const sb = getSupabase();
+      const { data: msgData, error: getError } = await sb
+        .from('activity_chat_messages')
+        .select('reactions')
+        .eq('id', messageId)
+        .single();
 
-      if (getResult.rows.length === 0) {
-        return res.status(404).json({ error: "Message not found" });
+      if (getError) {
+        if (getError.code === 'PGRST116') {
+          return res.status(404).json({ error: "Message not found" });
+        }
+        throw getError;
       }
 
-      const reactions: Record<string, string[]> = getResult.rows[0].reactions || {};
+      const reactions: Record<string, string[]> = msgData.reactions || {};
       const current = new Set(reactions[emoji] || []);
 
       if (current.has(userId)) {
@@ -774,11 +844,11 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
         reactions[emoji] = Array.from(current);
       }
 
-      // Update reactions
-      await pool.query(
-        `UPDATE activity_chat_messages SET reactions = $1 WHERE id = $2`,
-        [JSON.stringify(reactions), messageId]
-      );
+      const { error: updateError } = await sb
+        .from('activity_chat_messages')
+        .update({ reactions })
+        .eq('id', messageId);
+      if (updateError) throw updateError;
 
       res.json({ id: messageId, reactions });
     } catch (error) {
@@ -787,20 +857,20 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
     }
   });
 
-  // Delete a message (moderator or owner) - PostgreSQL
+  // Delete a message (moderator or owner) - Supabase
   app.delete("/api/activities/:activityId/messages/:messageId", async (req: Request, res: Response) => {
     const { messageId } = req.params;
 
     try {
-      const result = await pool.query(
-        `UPDATE activity_chat_messages 
-         SET deleted_at = NOW() 
-         WHERE id = $1 
-         RETURNING id`,
-        [messageId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('activity_chat_messages')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', messageId)
+        .select('id');
 
-      if (result.rows.length === 0) {
+      if (error) throw error;
+      if (!data || data.length === 0) {
         return res.status(404).json({ error: "Message not found" });
       }
 
@@ -1200,34 +1270,76 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
       const { id, name, age, bio, interests, photos, location } = req.body;
       if (!id) return res.status(400).json({ error: "User ID is required" });
 
-      const existing = await pool.query(`SELECT id FROM user_profiles WHERE id = $1`, [id]);
-      if (existing.rows.length > 0) {
-        await pool.query(
-          `UPDATE user_profiles SET name = COALESCE($2, name), age = COALESCE($3, age), bio = COALESCE($4, bio), interests = COALESCE($5, interests), photos = COALESCE($6, photos), location = COALESCE($7, location), updated_at = NOW() WHERE id = $1`,
-          [id, name, age, bio, interests ? JSON.stringify(interests) : null, photos ? JSON.stringify(photos) : null, location]
-        );
+      const sb = getSupabase();
+      const { data: existing, error: selectError } = await sb
+        .from('user_profiles')
+        .select('id')
+        .eq('id', id);
+      if (selectError) throw selectError;
+
+      if (existing && existing.length > 0) {
+        const updateData: any = { updated_at: new Date().toISOString() };
+        if (name !== undefined) updateData.name = name;
+        if (age !== undefined) updateData.age = age;
+        if (bio !== undefined) updateData.bio = bio;
+        if (interests !== undefined) updateData.interests = interests;
+        if (photos !== undefined) updateData.photos = photos;
+        if (location !== undefined) updateData.location = location;
+
+        const { error: updateError } = await sb
+          .from('user_profiles')
+          .update(updateData)
+          .eq('id', id);
+        if (updateError) throw updateError;
       } else {
         const now = Date.now();
-        await pool.query(
-          `INSERT INTO user_profiles (id, name, age, bio, interests, photos, location, compatibility_checks_this_week, radar_scans_this_week, last_reset_timestamp, is_visible_on_radar, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, true, NOW(), NOW())`,
-          [id, name || '', age || 0, bio || '', JSON.stringify(interests || []), JSON.stringify(photos || []), location || '', now]
-        );
+        const { error: insertError } = await sb
+          .from('user_profiles')
+          .insert({
+            id,
+            name: name || '',
+            age: age || 0,
+            bio: bio || '',
+            interests: interests || [],
+            photos: photos || [],
+            location: location || '',
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: now,
+            is_visible_on_radar: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        if (insertError) throw insertError;
 
         if (!id.startsWith('mock')) {
-          const mockIds = await pool.query(`SELECT id FROM user_profiles WHERE id LIKE 'mock%'`);
-          for (const mock of mockIds.rows) {
-            await pool.query(
-              `INSERT INTO swipes (id, swiper_id, swiped_id, direction, created_at)
-               VALUES ($1, $2, $3, 'right', NOW())
-               ON CONFLICT (swiper_id, swiped_id) DO NOTHING`,
-              [`seed_${mock.id}_${id}`, mock.id, id]
-            );
+          const { data: mockIds } = await sb
+            .from('user_profiles')
+            .select('id')
+            .like('id', 'mock%');
+          if (mockIds) {
+            for (const mock of mockIds) {
+              await sb
+                .from('swipes')
+                .upsert({
+                  id: `seed_${mock.id}_${id}`,
+                  swiper_id: mock.id,
+                  swiped_id: id,
+                  direction: 'right',
+                  created_at: new Date().toISOString(),
+                }, { onConflict: 'swiper_id,swiped_id' });
+            }
           }
         }
       }
 
-      const result = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [id]);
-      res.json(result.rows[0]);
+      const { data: result, error: getError } = await sb
+        .from('user_profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (getError) throw getError;
+      res.json(result);
     } catch (error) {
       console.error("Upsert profile error:", error);
       res.status(500).json({ error: "Failed to upsert profile" });
@@ -1236,9 +1348,19 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
 
   app.get("/api/user-profiles/:userId", async (req: Request, res: Response) => {
     try {
-      const result = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [req.params.userId]);
-      if (result.rows.length === 0) return res.status(404).json({ error: "Profile not found" });
-      res.json(result.rows[0]);
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('*')
+        .eq('id', req.params.userId)
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: "Profile not found" });
+        }
+        throw error;
+      }
+      res.json(data);
     } catch (error) {
       console.error("Get profile error:", error);
       res.status(500).json({ error: "Failed to get profile" });
@@ -1264,26 +1386,58 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
       const { userAId, userBId, userAProfile, userBProfile, tier } = req.body;
       if (!userAId || !userBId) return res.status(400).json({ error: "Both user IDs are required" });
 
+      const sb = getSupabase();
+
       // Ensure user A profile exists
-      let profileResult = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [userAId]);
-      let profile = profileResult.rows[0];
+      const { data: profileData, error: profileError } = await sb
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userAId)
+        .single();
+
+      let profile = profileData;
+
+      if (profileError || !profile) {
+        const now = Date.now();
+        await sb
+          .from('user_profiles')
+          .insert({
+            id: userAId,
+            name: userAProfile?.name || '',
+            age: userAProfile?.age || 0,
+            bio: userAProfile?.bio || '',
+            interests: userAProfile?.interests || [],
+            photos: userAProfile?.photos || [],
+            location: userAProfile?.location || '',
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: now,
+            is_visible_on_radar: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        const { data: newProfile } = await sb
+          .from('user_profiles')
+          .select('*')
+          .eq('id', userAId)
+          .single();
+        profile = newProfile;
+      }
 
       if (!profile) {
-        const now = Date.now();
-        await pool.query(
-          `INSERT INTO user_profiles (id, name, age, bio, interests, photos, location, compatibility_checks_this_week, radar_scans_this_week, last_reset_timestamp, is_visible_on_radar, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, true, NOW(), NOW())`,
-          [userAId, userAProfile?.name || '', userAProfile?.age || 0, userAProfile?.bio || '', JSON.stringify(userAProfile?.interests || []), JSON.stringify(userAProfile?.photos || []), userAProfile?.location || '', now]
-        );
-        profileResult = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [userAId]);
-        profile = profileResult.rows[0];
+        return res.status(500).json({ error: "Failed to get or create profile" });
       }
 
       // Check weekly reset
       if (shouldResetWeekly(Number(profile.last_reset_timestamp) || 0)) {
-        await pool.query(
-          `UPDATE user_profiles SET compatibility_checks_this_week = 0, radar_scans_this_week = 0, last_reset_timestamp = $2 WHERE id = $1`,
-          [userAId, Date.now()]
-        );
+        await sb
+          .from('user_profiles')
+          .update({
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: Date.now(),
+          })
+          .eq('id', userAId);
         profile.compatibility_checks_this_week = 0;
       }
 
@@ -1301,13 +1455,30 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
       }
 
       // Check for existing recent compatibility
-      const existingResult = await pool.query(
-        `SELECT * FROM compatibility_history WHERE ((user_a = $1 AND user_b = $2) OR (user_a = $2 AND user_b = $1)) AND created_at > NOW() - INTERVAL '7 days' ORDER BY created_at DESC LIMIT 1`,
-        [userAId, userBId]
-      );
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: existingAB } = await sb
+        .from('compatibility_history')
+        .select('*')
+        .eq('user_a', userAId)
+        .eq('user_b', userBId)
+        .gte('created_at', sevenDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (existingResult.rows.length > 0) {
-        return res.json({ result: existingResult.rows[0], cached: true });
+      const { data: existingBA } = await sb
+        .from('compatibility_history')
+        .select('*')
+        .eq('user_a', userBId)
+        .eq('user_b', userAId)
+        .gte('created_at', sevenDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const existingRow = (existingAB && existingAB.length > 0) ? existingAB[0] :
+                          (existingBA && existingBA.length > 0) ? existingBA[0] : null;
+
+      if (existingRow) {
+        return res.json({ result: existingRow, cached: true });
       }
 
       // Build AI prompt
@@ -1345,16 +1516,29 @@ Return ONLY this JSON structure:
 
       // Save to database
       const compatId = `compat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await pool.query(
-        `INSERT INTO compatibility_history (id, user_a, user_b, score, strengths, conflicts, icebreakers, first_message, date_idea, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
-        [compatId, userAId, userBId, compatResult.score, JSON.stringify(compatResult.strengths), JSON.stringify(compatResult.conflicts), JSON.stringify(compatResult.icebreakers), compatResult.first_message, compatResult.date_idea]
-      );
+      const nowIso = new Date().toISOString();
+      await sb
+        .from('compatibility_history')
+        .insert({
+          id: compatId,
+          user_a: userAId,
+          user_b: userBId,
+          score: compatResult.score,
+          strengths: compatResult.strengths,
+          conflicts: compatResult.conflicts,
+          icebreakers: compatResult.icebreakers,
+          first_message: compatResult.first_message,
+          date_idea: compatResult.date_idea,
+          created_at: nowIso,
+        });
 
       // Increment usage counter
-      await pool.query(
-        `UPDATE user_profiles SET compatibility_checks_this_week = compatibility_checks_this_week + 1 WHERE id = $1`,
-        [userAId]
-      );
+      await sb
+        .from('user_profiles')
+        .update({
+          compatibility_checks_this_week: (profile.compatibility_checks_this_week || 0) + 1,
+        })
+        .eq('id', userAId);
 
       res.json({
         result: {
@@ -1362,7 +1546,7 @@ Return ONLY this JSON structure:
           user_a: userAId,
           user_b: userBId,
           ...compatResult,
-          created_at: new Date().toISOString(),
+          created_at: nowIso,
         },
         cached: false,
       });
@@ -1374,14 +1558,28 @@ Return ONLY this JSON structure:
 
   app.get("/api/compatibility/history/:userId", async (req: Request, res: Response) => {
     try {
-      const result = await pool.query(
-        `SELECT * FROM compatibility_history WHERE user_a = $1 OR user_b = $1 ORDER BY created_at DESC LIMIT 20`,
-        [req.params.userId]
-      );
-      res.json(result.rows);
+      const sb = getSupabase();
+      const userId = req.params.userId;
+      const { data: dataA } = await sb
+        .from('compatibility_history')
+        .select('*')
+        .eq('user_a', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      const { data: dataB } = await sb
+        .from('compatibility_history')
+        .select('*')
+        .eq('user_b', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      const combined = [...(dataA || []), ...(dataB || [])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 20);
+      res.json(combined);
     } catch (error) {
       console.error("Get compatibility history error:", error);
-      res.status(500).json({ error: "Failed to get history" });
+      res.json([]);
     }
   });
 
@@ -1400,17 +1598,22 @@ Return ONLY this JSON structure:
         return res.status(400).json({ error: "userId, lat, and lng are required" });
       }
 
-      const existing = await pool.query(`SELECT user_id FROM user_locations WHERE user_id = $1`, [userId]);
-      if (existing.rows.length > 0) {
-        await pool.query(
-          `UPDATE user_locations SET lat = $2, lng = $3, updated_at = NOW() WHERE user_id = $1`,
-          [userId, lat, lng]
-        );
+      const sb = getSupabase();
+      const now = new Date().toISOString();
+      const { data: existing } = await sb
+        .from('user_locations')
+        .select('user_id')
+        .eq('user_id', userId);
+
+      if (existing && existing.length > 0) {
+        await sb
+          .from('user_locations')
+          .update({ lat, lng, updated_at: now })
+          .eq('user_id', userId);
       } else {
-        await pool.query(
-          `INSERT INTO user_locations (user_id, lat, lng, updated_at) VALUES ($1, $2, $3, NOW())`,
-          [userId, lat, lng]
-        );
+        await sb
+          .from('user_locations')
+          .insert({ user_id: userId, lat, lng, updated_at: now });
       }
 
       res.json({ success: true });
@@ -1427,26 +1630,53 @@ Return ONLY this JSON structure:
         return res.status(400).json({ error: "userId, lat, and lng are required" });
       }
 
+      const sb = getSupabase();
+
       // Get/create user profile
-      let profileResult = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [userId]);
-      let profile = profileResult.rows[0];
+      const { data: profileData } = await sb
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      let profile = profileData;
 
       if (!profile) {
         const now = Date.now();
-        await pool.query(
-          `INSERT INTO user_profiles (id, name, compatibility_checks_this_week, radar_scans_this_week, last_reset_timestamp, is_visible_on_radar, created_at, updated_at) VALUES ($1, '', 0, 0, $2, true, NOW(), NOW())`,
-          [userId, now]
-        );
-        profileResult = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [userId]);
-        profile = profileResult.rows[0];
+        await sb
+          .from('user_profiles')
+          .insert({
+            id: userId,
+            name: '',
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: now,
+            is_visible_on_radar: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        const { data: newProfile } = await sb
+          .from('user_profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        profile = newProfile;
+      }
+
+      if (!profile) {
+        return res.status(500).json({ error: "Failed to get or create profile" });
       }
 
       // Check weekly reset
       if (shouldResetWeekly(Number(profile.last_reset_timestamp) || 0)) {
-        await pool.query(
-          `UPDATE user_profiles SET compatibility_checks_this_week = 0, radar_scans_this_week = 0, last_reset_timestamp = $2 WHERE id = $1`,
-          [userId, Date.now()]
-        );
+        await sb
+          .from('user_profiles')
+          .update({
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: Date.now(),
+          })
+          .eq('id', userId);
         profile.radar_scans_this_week = 0;
       }
 
@@ -1464,50 +1694,76 @@ Return ONLY this JSON structure:
       }
 
       // Update own location
-      const existingLoc = await pool.query(`SELECT user_id FROM user_locations WHERE user_id = $1`, [userId]);
-      if (existingLoc.rows.length > 0) {
-        await pool.query(`UPDATE user_locations SET lat = $2, lng = $3, updated_at = NOW() WHERE user_id = $1`, [userId, lat, lng]);
+      const now = new Date().toISOString();
+      const { data: existingLoc } = await sb
+        .from('user_locations')
+        .select('user_id')
+        .eq('user_id', userId);
+
+      if (existingLoc && existingLoc.length > 0) {
+        await sb
+          .from('user_locations')
+          .update({ lat, lng, updated_at: now })
+          .eq('user_id', userId);
       } else {
-        await pool.query(`INSERT INTO user_locations (user_id, lat, lng, updated_at) VALUES ($1, $2, $3, NOW())`, [userId, lat, lng]);
+        await sb
+          .from('user_locations')
+          .insert({ user_id: userId, lat, lng, updated_at: now });
       }
 
-      // Query nearby users using bounding box
+      // Query nearby users - get all locations and filter in JS
+      // (Supabase doesn't support complex JOINs with bounding box easily)
       const radius = radiusKm || 50;
       const latDelta = radius / 111.0;
       const lngDelta = radius / (111.0 * Math.cos((lat * Math.PI) / 180));
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      const nearbyResult = await pool.query(
-        `SELECT ul.user_id, ul.lat, ul.lng, ul.updated_at,
-                up.name, up.age, up.bio, up.interests, up.photos, up.location as profile_location
-         FROM user_locations ul
-         LEFT JOIN user_profiles up ON ul.user_id = up.id
-         WHERE ul.user_id != $1
-           AND ul.lat BETWEEN $2 AND $3
-           AND ul.lng BETWEEN $4 AND $5
-           AND (up.is_visible_on_radar IS NULL OR up.is_visible_on_radar = true)
-           AND ul.updated_at > NOW() - INTERVAL '7 days'
-         LIMIT 50`,
-        [userId, lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta]
-      );
+      const { data: nearbyLocs } = await sb
+        .from('user_locations')
+        .select('user_id, lat, lng, updated_at')
+        .neq('user_id', userId)
+        .gte('lat', lat - latDelta)
+        .lte('lat', lat + latDelta)
+        .gte('lng', lng - lngDelta)
+        .lte('lng', lng + lngDelta)
+        .gte('updated_at', sevenDaysAgo)
+        .limit(50);
 
-      // Calculate actual distances and filter
-      const nearbyUsers = nearbyResult.rows
+      const nearbyUserIds = (nearbyLocs || []).map(l => l.user_id);
+
+      let profilesMap: Record<string, any> = {};
+      if (nearbyUserIds.length > 0) {
+        const { data: profiles } = await sb
+          .from('user_profiles')
+          .select('id, name, age, bio, interests, photos, location, is_visible_on_radar')
+          .in('id', nearbyUserIds);
+        if (profiles) {
+          for (const p of profiles) {
+            if (p.is_visible_on_radar === false) continue;
+            profilesMap[p.id] = p;
+          }
+        }
+      }
+
+      const nearbyUsers = (nearbyLocs || [])
+        .filter(loc => profilesMap[loc.user_id])
         .map((row: any) => {
           const dLat = ((row.lat - lat) * Math.PI) / 180;
           const dLng = ((row.lng - lng) * Math.PI) / 180;
           const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat * Math.PI) / 180) * Math.cos((row.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
           const distance = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          const up = profilesMap[row.user_id];
           return {
             userId: row.user_id,
             lat: row.lat,
             lng: row.lng,
             distance: Math.round(distance * 10) / 10,
-            name: row.name || "Nomad",
-            age: row.age,
-            bio: row.bio,
-            interests: row.interests || [],
-            photos: row.photos || [],
-            location: row.profile_location,
+            name: up?.name || "Nomad",
+            age: up?.age,
+            bio: up?.bio,
+            interests: up?.interests || [],
+            photos: up?.photos || [],
+            location: up?.location,
             lastSeen: row.updated_at,
           };
         })
@@ -1515,10 +1771,12 @@ Return ONLY this JSON structure:
         .sort((a: any, b: any) => a.distance - b.distance);
 
       // Increment scan count
-      await pool.query(
-        `UPDATE user_profiles SET radar_scans_this_week = radar_scans_this_week + 1 WHERE id = $1`,
-        [userId]
-      );
+      await sb
+        .from('user_profiles')
+        .update({
+          radar_scans_this_week: (profile.radar_scans_this_week || 0) + 1,
+        })
+        .eq('id', userId);
 
       res.json({
         users: nearbyUsers,
@@ -1536,10 +1794,11 @@ Return ONLY this JSON structure:
       const { userId, isVisible } = req.body;
       if (!userId) return res.status(400).json({ error: "userId is required" });
 
-      await pool.query(
-        `UPDATE user_profiles SET is_visible_on_radar = $2 WHERE id = $1`,
-        [userId, isVisible !== false]
-      );
+      const sb = getSupabase();
+      await sb
+        .from('user_profiles')
+        .update({ is_visible_on_radar: isVisible !== false })
+        .eq('id', userId);
 
       res.json({ success: true, isVisible: isVisible !== false });
     } catch (error) {
@@ -1552,18 +1811,28 @@ Return ONLY this JSON structure:
 
   app.get("/api/usage/:userId", async (req: Request, res: Response) => {
     try {
-      const result = await pool.query(`SELECT * FROM user_profiles WHERE id = $1`, [req.params.userId]);
-      if (result.rows.length === 0) {
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('*')
+        .eq('id', req.params.userId)
+        .single();
+
+      if (error || !data) {
         return res.json({ compatibilityChecks: 0, radarScans: 0 });
       }
-      const profile = result.rows[0];
+      const profile = data;
 
       // Check if we need to reset
       if (shouldResetWeekly(Number(profile.last_reset_timestamp) || 0)) {
-        await pool.query(
-          `UPDATE user_profiles SET compatibility_checks_this_week = 0, radar_scans_this_week = 0, last_reset_timestamp = $2 WHERE id = $1`,
-          [req.params.userId, Date.now()]
-        );
+        await sb
+          .from('user_profiles')
+          .update({
+            compatibility_checks_this_week: 0,
+            radar_scans_this_week: 0,
+            last_reset_timestamp: Date.now(),
+          })
+          .eq('id', req.params.userId);
         return res.json({ compatibilityChecks: 0, radarScans: 0 });
       }
 
@@ -1573,7 +1842,7 @@ Return ONLY this JSON structure:
       });
     } catch (error) {
       console.error("Get usage error:", error);
-      res.status(500).json({ error: "Failed to get usage stats" });
+      res.json({ compatibilityChecks: 0, radarScans: 0 });
     }
   });
 
@@ -1581,20 +1850,22 @@ Return ONLY this JSON structure:
 
   app.get("/api/verification/status/:userId", async (req: Request, res: Response) => {
     try {
-      const result = await pool.query(
-        `SELECT is_travel_verified, travel_badge FROM user_profiles WHERE id = $1`,
-        [req.params.userId]
-      );
-      if (result.rows.length === 0) {
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('user_profiles')
+        .select('is_travel_verified, travel_badge')
+        .eq('id', req.params.userId)
+        .single();
+      if (error || !data) {
         return res.json({ isVerified: false, badge: null });
       }
       res.json({
-        isVerified: result.rows[0].is_travel_verified || false,
-        badge: result.rows[0].travel_badge || null,
+        isVerified: data.is_travel_verified || false,
+        badge: data.travel_badge || null,
       });
     } catch (error) {
       console.error("Get verification status error:", error);
-      res.status(500).json({ error: "Failed to get verification status" });
+      res.json({ isVerified: false, badge: null });
     }
   });
 
@@ -1695,26 +1966,49 @@ Badge assignment:
       verificationResult.badge = badge;
       verificationResult.verdict = verdict;
 
+      const sb = getSupabase();
       const verId = `ver_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await pool.query(
-        `INSERT INTO travel_verification (id, user_id, photo_url, secondary_photo_url, answer1, answer2, answer3, status, badge_type, reviewer_notes, submitted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
-        [verId, userId, photoUrl, secondaryPhotoUrl || null, answer1, answer2, answer3 || null,
-         verdict, badge, JSON.stringify(verificationResult.reasons)]
-      );
+      await sb
+        .from('travel_verification')
+        .insert({
+          id: verId,
+          user_id: userId,
+          photo_url: photoUrl,
+          secondary_photo_url: secondaryPhotoUrl || null,
+          answer1,
+          answer2,
+          answer3: answer3 || null,
+          status: verdict,
+          badge_type: badge,
+          reviewer_notes: verificationResult.reasons,
+          submitted_at: new Date().toISOString(),
+        });
 
       if (verdict === "verified") {
-        const existingProfile = await pool.query(`SELECT id FROM user_profiles WHERE id = $1`, [userId]);
-        if (existingProfile.rows.length > 0) {
-          await pool.query(
-            `UPDATE user_profiles SET is_travel_verified = true, travel_badge = $2, updated_at = NOW() WHERE id = $1`,
-            [userId, badge]
-          );
+        const { data: existingProfile } = await sb
+          .from('user_profiles')
+          .select('id')
+          .eq('id', userId);
+
+        if (existingProfile && existingProfile.length > 0) {
+          await sb
+            .from('user_profiles')
+            .update({
+              is_travel_verified: true,
+              travel_badge: badge,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId);
         } else {
-          await pool.query(
-            `INSERT INTO user_profiles (id, is_travel_verified, travel_badge, created_at, updated_at) VALUES ($1, true, $2, NOW(), NOW())`,
-            [userId, badge]
-          );
+          await sb
+            .from('user_profiles')
+            .insert({
+              id: userId,
+              is_travel_verified: true,
+              travel_badge: badge,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
         }
       }
 
@@ -1732,21 +2026,54 @@ Badge assignment:
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ error: "User ID is required" });
 
-      const result = await pool.query(
-        `SELECT up.* FROM user_profiles up
-         WHERE up.id != $1
-           AND up.id NOT IN (SELECT swiped_id FROM swipes WHERE swiper_id = $1)
-           AND up.id NOT IN (
-             SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END
-             FROM matches WHERE user_a_id = $1 OR user_b_id = $1
-           )
-           AND up.name IS NOT NULL AND up.name != ''
-         ORDER BY RANDOM()
-         LIMIT 30`,
-        [userId]
-      );
+      const sb = getSupabase();
 
-      const profiles = result.rows.map((row: any) => ({
+      // Get swiped IDs
+      const { data: swipedData } = await sb
+        .from('swipes')
+        .select('swiped_id')
+        .eq('swiper_id', userId);
+      const swipedIds = (swipedData || []).map(s => s.swiped_id);
+
+      // Get matched IDs
+      const { data: matchesA } = await sb
+        .from('matches')
+        .select('user_b_id')
+        .eq('user_a_id', userId);
+      const { data: matchesB } = await sb
+        .from('matches')
+        .select('user_a_id')
+        .eq('user_b_id', userId);
+
+      const matchedIds = [
+        ...((matchesA || []).map(m => m.user_b_id)),
+        ...((matchesB || []).map(m => m.user_a_id)),
+      ];
+
+      const excludeIds = new Set([userId, ...swipedIds, ...matchedIds]);
+
+      // Get profiles
+      const { data: allProfiles, error } = await sb
+        .from('user_profiles')
+        .select('*')
+        .neq('id', userId)
+        .not('name', 'is', null)
+        .neq('name', '')
+        .order('id');
+
+      if (error) throw error;
+
+      // Filter out excluded IDs and shuffle
+      let filtered = (allProfiles || []).filter(p => !excludeIds.has(p.id));
+
+      // Shuffle array (Fisher-Yates)
+      for (let i = filtered.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
+      }
+      filtered = filtered.slice(0, 30);
+
+      const profiles = filtered.map((row: any) => ({
         user: {
           id: row.id,
           email: row.email || "",
@@ -1760,7 +2087,7 @@ Badge assignment:
           travelStyle: row.travel_style || undefined,
           isTravelVerified: row.is_travel_verified || false,
           travelBadge: row.travel_badge || "none",
-          createdAt: row.created_at?.toISOString() || new Date().toISOString(),
+          createdAt: row.created_at || new Date().toISOString(),
         },
         distance: Math.floor(Math.random() * 50) + 1,
       }));
@@ -1768,7 +2095,7 @@ Badge assignment:
       res.json(profiles);
     } catch (error) {
       console.error("Discover profiles error:", error);
-      res.status(500).json({ error: "Failed to fetch profiles" });
+      res.json([]);
     }
   });
 
@@ -1779,38 +2106,60 @@ Badge assignment:
         return res.status(400).json({ error: "swiperId, swipedId, and direction are required" });
       }
 
-      await pool.query(
-        `INSERT INTO swipes (swiper_id, swiped_id, direction, created_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (swiper_id, swiped_id) DO UPDATE SET direction = $3, created_at = NOW()`,
-        [swiperId, swipedId, direction]
-      );
+      const sb = getSupabase();
+      const now = new Date().toISOString();
+
+      await sb
+        .from('swipes')
+        .upsert({
+          swiper_id: swiperId,
+          swiped_id: swipedId,
+          direction,
+          created_at: now,
+        }, { onConflict: 'swiper_id,swiped_id' });
 
       let match = null;
       if (direction === "right") {
-        const reverseSwipe = await pool.query(
-          `SELECT id FROM swipes WHERE swiper_id = $1 AND swiped_id = $2 AND direction = 'right'`,
-          [swipedId, swiperId]
-        );
+        const { data: reverseSwipe } = await sb
+          .from('swipes')
+          .select('id')
+          .eq('swiper_id', swipedId)
+          .eq('swiped_id', swiperId)
+          .eq('direction', 'right');
 
-        if (reverseSwipe.rows.length > 0) {
-          const existingMatch = await pool.query(
-            `SELECT id FROM matches
-             WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)`,
-            [swiperId, swipedId]
-          );
+        if (reverseSwipe && reverseSwipe.length > 0) {
+          // Check for existing match
+          const { data: existingMatchA } = await sb
+            .from('matches')
+            .select('id')
+            .eq('user_a_id', swiperId)
+            .eq('user_b_id', swipedId);
+          const { data: existingMatchB } = await sb
+            .from('matches')
+            .select('id')
+            .eq('user_a_id', swipedId)
+            .eq('user_b_id', swiperId);
 
-          if (existingMatch.rows.length === 0) {
+          const hasExistingMatch = (existingMatchA && existingMatchA.length > 0) ||
+                                   (existingMatchB && existingMatchB.length > 0);
+
+          if (!hasExistingMatch) {
             const matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            await pool.query(
-              `INSERT INTO matches (id, user_a_id, user_b_id, created_at) VALUES ($1, $2, $3, NOW())`,
-              [matchId, swiperId, swipedId]
-            );
+            await sb
+              .from('matches')
+              .insert({
+                id: matchId,
+                user_a_id: swiperId,
+                user_b_id: swipedId,
+                created_at: now,
+              });
 
-            const matchedProfile = await pool.query(
-              `SELECT * FROM user_profiles WHERE id = $1`, [swipedId]
-            );
-            const mp = matchedProfile.rows[0];
+            const { data: mp } = await sb
+              .from('user_profiles')
+              .select('*')
+              .eq('id', swipedId)
+              .single();
+
             if (mp) {
               match = {
                 id: matchId,
@@ -1828,9 +2177,9 @@ Badge assignment:
                   travelStyle: mp.travel_style || undefined,
                   isTravelVerified: mp.is_travel_verified || false,
                   travelBadge: mp.travel_badge || "none",
-                  createdAt: mp.created_at?.toISOString() || new Date().toISOString(),
+                  createdAt: mp.created_at || new Date().toISOString(),
                 },
-                createdAt: new Date().toISOString(),
+                createdAt: now,
               };
             }
           }
@@ -1849,62 +2198,119 @@ Badge assignment:
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ error: "User ID is required" });
 
-      const result = await pool.query(
-        `SELECT m.id, m.user_a_id, m.user_b_id, m.created_at,
-                up.id as profile_id, up.name, up.age, up.bio,
-                up.interests, up.photos, up.location, up.van_type,
-                up.travel_style, up.email, up.is_travel_verified, up.travel_badge
-         FROM matches m
-         JOIN user_profiles up ON up.id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
-         WHERE m.user_a_id = $1 OR m.user_b_id = $1
-         ORDER BY m.created_at DESC`,
-        [userId]
+      const sb = getSupabase();
+
+      // Get matches where user is either user_a or user_b
+      const { data: matchesA } = await sb
+        .from('matches')
+        .select('id, user_a_id, user_b_id, created_at')
+        .eq('user_a_id', userId)
+        .order('created_at', { ascending: false });
+      const { data: matchesB } = await sb
+        .from('matches')
+        .select('id, user_a_id, user_b_id, created_at')
+        .eq('user_b_id', userId)
+        .order('created_at', { ascending: false });
+
+      const allMatches = [...(matchesA || []), ...(matchesB || [])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      // Get matched user IDs
+      const matchedUserIds = allMatches.map(m =>
+        m.user_a_id === userId ? m.user_b_id : m.user_a_id
       );
 
-      const matchList = result.rows.map((row: any) => ({
-        id: row.id,
-        matchedUserId: row.profile_id,
-        matchedUser: {
-          id: row.profile_id,
-          email: row.email || "",
-          name: row.name || "Nomad",
-          age: row.age || 25,
-          bio: row.bio || "",
-          location: row.location || "On the road",
-          photos: row.photos || [],
-          interests: row.interests || [],
-          vanType: row.van_type || undefined,
-          travelStyle: row.travel_style || undefined,
-          isTravelVerified: row.is_travel_verified || false,
-          travelBadge: row.travel_badge || "none",
-          createdAt: new Date().toISOString(),
-        },
-        createdAt: row.created_at?.toISOString() || new Date().toISOString(),
-      }));
+      let profilesMap: Record<string, any> = {};
+      if (matchedUserIds.length > 0) {
+        const { data: profiles } = await sb
+          .from('user_profiles')
+          .select('*')
+          .in('id', matchedUserIds);
+        if (profiles) {
+          for (const p of profiles) {
+            profilesMap[p.id] = p;
+          }
+        }
+      }
+
+      const matchList = allMatches.map((m: any) => {
+        const matchedUserId = m.user_a_id === userId ? m.user_b_id : m.user_a_id;
+        const row = profilesMap[matchedUserId] || {};
+        return {
+          id: m.id,
+          matchedUserId,
+          matchedUser: {
+            id: matchedUserId,
+            email: row.email || "",
+            name: row.name || "Nomad",
+            age: row.age || 25,
+            bio: row.bio || "",
+            location: row.location || "On the road",
+            photos: row.photos || [],
+            interests: row.interests || [],
+            vanType: row.van_type || undefined,
+            travelStyle: row.travel_style || undefined,
+            isTravelVerified: row.is_travel_verified || false,
+            travelBadge: row.travel_badge || "none",
+            createdAt: new Date().toISOString(),
+          },
+          createdAt: m.created_at || new Date().toISOString(),
+        };
+      });
 
       res.json(matchList);
     } catch (error) {
       console.error("Get matches error:", error);
-      res.status(500).json({ error: "Failed to get matches" });
+      res.json([]);
     }
   });
 
   app.get("/api/swipes/liked/:userId", async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
-      const result = await pool.query(
-        `SELECT up.* FROM swipes s
-         JOIN user_profiles up ON up.id = s.swiped_id
-         WHERE s.swiper_id = $1 AND s.direction = 'right'
-           AND s.swiped_id NOT IN (
-             SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END
-             FROM matches WHERE user_a_id = $1 OR user_b_id = $1
-           )
-         ORDER BY s.created_at DESC`,
-        [userId]
-      );
+      const sb = getSupabase();
 
-      const likedProfiles = result.rows.map((row: any) => ({
+      // Get right swipes
+      const { data: swipes } = await sb
+        .from('swipes')
+        .select('swiped_id, created_at')
+        .eq('swiper_id', userId)
+        .eq('direction', 'right')
+        .order('created_at', { ascending: false });
+
+      if (!swipes || swipes.length === 0) {
+        return res.json([]);
+      }
+
+      const swipedIds = swipes.map(s => s.swiped_id);
+
+      // Get matched IDs to exclude
+      const { data: matchesA } = await sb
+        .from('matches')
+        .select('user_b_id')
+        .eq('user_a_id', userId);
+      const { data: matchesB } = await sb
+        .from('matches')
+        .select('user_a_id')
+        .eq('user_b_id', userId);
+
+      const matchedIds = new Set([
+        ...((matchesA || []).map(m => m.user_b_id)),
+        ...((matchesB || []).map(m => m.user_a_id)),
+      ]);
+
+      const filteredIds = swipedIds.filter(id => !matchedIds.has(id));
+
+      if (filteredIds.length === 0) {
+        return res.json([]);
+      }
+
+      const { data: profiles } = await sb
+        .from('user_profiles')
+        .select('*')
+        .in('id', filteredIds);
+
+      const likedProfiles = (profiles || []).map((row: any) => ({
         id: row.id,
         email: row.email || "",
         name: row.name || "Nomad",
@@ -1915,43 +2321,50 @@ Badge assignment:
         interests: row.interests || [],
         vanType: row.van_type || undefined,
         travelStyle: row.travel_style || undefined,
-        createdAt: row.created_at?.toISOString() || new Date().toISOString(),
+        createdAt: row.created_at || new Date().toISOString(),
       }));
 
       res.json(likedProfiles);
     } catch (error) {
       console.error("Get liked profiles error:", error);
-      res.status(500).json({ error: "Failed to get liked profiles" });
+      res.json([]);
     }
   });
 
   app.post("/api/seed/mock-swipes", async (req: Request, res: Response) => {
     try {
-      const mockIds = await pool.query(
-        `SELECT id FROM user_profiles WHERE id LIKE 'mock%'`
-      );
-      const realIds = await pool.query(
-        `SELECT id FROM user_profiles WHERE id NOT LIKE 'mock%'`
-      );
+      const sb = getSupabase();
+      const { data: mockIds } = await sb
+        .from('user_profiles')
+        .select('id')
+        .like('id', 'mock%');
+      const { data: realIds } = await sb
+        .from('user_profiles')
+        .select('id')
+        .not('id', 'like', 'mock%');
 
-      if (mockIds.rows.length === 0 || realIds.rows.length === 0) {
+      if (!mockIds || mockIds.length === 0 || !realIds || realIds.length === 0) {
         return res.json({ message: "No mock or real profiles found", seeded: 0 });
       }
 
       let seeded = 0;
-      for (const mock of mockIds.rows) {
-        for (const real of realIds.rows) {
-          await pool.query(
-            `INSERT INTO swipes (id, swiper_id, swiped_id, direction, created_at)
-             VALUES ($1, $2, $3, 'right', NOW())
-             ON CONFLICT (swiper_id, swiped_id) DO NOTHING`,
-            [`seed_${mock.id}_${real.id}`, mock.id, real.id]
-          );
+      const now = new Date().toISOString();
+      for (const mock of mockIds) {
+        for (const real of realIds) {
+          await sb
+            .from('swipes')
+            .upsert({
+              id: `seed_${mock.id}_${real.id}`,
+              swiper_id: mock.id,
+              swiped_id: real.id,
+              direction: 'right',
+              created_at: now,
+            }, { onConflict: 'swiper_id,swiped_id' });
           seeded++;
         }
       }
 
-      res.json({ message: "Mock swipes seeded", seeded, mockCount: mockIds.rows.length, realCount: realIds.rows.length });
+      res.json({ message: "Mock swipes seeded", seeded, mockCount: mockIds.length, realCount: realIds.length });
     } catch (error) {
       console.error("Seed mock swipes error:", error);
       res.status(500).json({ error: "Failed to seed mock swipes" });
@@ -1962,7 +2375,11 @@ Badge assignment:
     try {
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ error: "User ID required" });
-      await pool.query(`DELETE FROM swipes WHERE swiper_id = $1`, [userId]);
+      const sb = getSupabase();
+      await sb
+        .from('swipes')
+        .delete()
+        .eq('swiper_id', userId);
       res.json({ message: "Swipes reset successfully" });
     } catch (error) {
       console.error("Reset swipes error:", error);
@@ -1983,24 +2400,38 @@ Badge assignment:
 
       if (!userId) return res.status(400).json({ error: "User ID required" });
 
-      const existing = await pool.query(
-        `SELECT id, status FROM expert_applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [userId]
-      );
-      if (existing.rows.length > 0 && ['pending', 'approved'].includes(existing.rows[0].status)) {
-        return res.status(400).json({ error: "You already have an active application", existing: existing.rows[0] });
+      const sb = getSupabase();
+      const { data: existing } = await sb
+        .from('expert_applications')
+        .select('id, status')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (existing && existing.length > 0 && ['pending', 'approved'].includes(existing[0].status)) {
+        return res.status(400).json({ error: "You already have an active application", existing: existing[0] });
       }
 
-      const result = await pool.query(
-        `INSERT INTO expert_applications (user_id, resume_url, resume_text, portfolio_urls, specialization, experience_years, skills, project_descriptions, intro_video_url, hourly_rate, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-         RETURNING *`,
-        [userId, resumeUrl || null, resumeText || null, JSON.stringify(portfolioUrls || []),
-         specialization, experienceYears, JSON.stringify(skills || []),
-         JSON.stringify(projectDescriptions || []), introVideoUrl || null, hourlyRate]
-      );
+      const { data: result, error } = await sb
+        .from('expert_applications')
+        .insert({
+          user_id: userId,
+          resume_url: resumeUrl || null,
+          resume_text: resumeText || null,
+          portfolio_urls: portfolioUrls || [],
+          specialization,
+          experience_years: experienceYears,
+          skills: skills || [],
+          project_descriptions: projectDescriptions || [],
+          intro_video_url: introVideoUrl || null,
+          hourly_rate: hourlyRate,
+          status: 'pending',
+        })
+        .select()
+        .single();
 
-      res.json({ application: result.rows[0] });
+      if (error) throw error;
+      res.json({ application: result });
     } catch (error) {
       console.error("Expert apply error:", error);
       res.status(500).json({ error: "Failed to submit application" });
@@ -2010,14 +2441,18 @@ Badge assignment:
   app.get("/api/expert/status/:userId", async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
-      const result = await pool.query(
-        `SELECT * FROM expert_applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [userId]
-      );
-      if (result.rows.length === 0) {
+      const sb = getSupabase();
+      const { data } = await sb
+        .from('expert_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!data || data.length === 0) {
         return res.json({ application: null });
       }
-      res.json({ application: result.rows[0] });
+      res.json({ application: data[0] });
     } catch (error) {
       console.error("Expert status error:", error);
       res.status(500).json({ error: "Failed to get status" });
@@ -2027,14 +2462,18 @@ Badge assignment:
   app.post("/api/expert/verify/:applicationId", async (req: Request, res: Response) => {
     try {
       const { applicationId } = req.params;
+      const sb = getSupabase();
 
-      const appResult = await pool.query(
-        `SELECT * FROM expert_applications WHERE id = $1`, [applicationId]
-      );
-      if (appResult.rows.length === 0) {
+      const { data: appData, error: appError } = await sb
+        .from('expert_applications')
+        .select('*')
+        .eq('id', applicationId)
+        .single();
+
+      if (appError || !appData) {
         return res.status(404).json({ error: "Application not found" });
       }
-      const application = appResult.rows[0];
+      const application = appData;
 
       const verificationPrompt = `You are an AI Expert Verification Engine.
 
@@ -2111,21 +2550,26 @@ Scoring rules:
                      verification.verdict === "manual_review" ? "manual_review" : "rejected";
       const badge = verification.badge || "none";
 
-      await pool.query(
-        `UPDATE expert_applications SET
-          status = $1, ai_score = $2, expert_badge = $3, reasons = $4, advice = $5,
-          portfolio_score = $6, resume_score = $7, skill_alignment_score = $8, experience_score = $9
-        WHERE id = $10`,
-        [status, verification.final_expert_score, badge, JSON.stringify(verification.reasons),
-         verification.advice, verification.portfolio_score, verification.resume_score,
-         verification.skill_alignment_score, verification.experience_score, applicationId]
-      );
+      await sb
+        .from('expert_applications')
+        .update({
+          status,
+          ai_score: verification.final_expert_score,
+          expert_badge: badge,
+          reasons: verification.reasons,
+          advice: verification.advice,
+          portfolio_score: verification.portfolio_score,
+          resume_score: verification.resume_score,
+          skill_alignment_score: verification.skill_alignment_score,
+          experience_score: verification.experience_score,
+        })
+        .eq('id', applicationId);
 
       if (status === "approved") {
-        await pool.query(
-          `UPDATE user_profiles SET is_expert = true, expert_badge = $1 WHERE id = $2`,
-          [badge, application.user_id]
-        );
+        await sb
+          .from('user_profiles')
+          .update({ is_expert: true, expert_badge: badge })
+          .eq('id', application.user_id);
       }
 
       res.json({ verification, status, badge });
@@ -2137,17 +2581,47 @@ Scoring rules:
 
   app.get("/api/experts", async (_req: Request, res: Response) => {
     try {
-      const result = await pool.query(
-        `SELECT ea.*, up.name, up.photos, up.location, up.expert_rating, up.reviews_count
-         FROM expert_applications ea
-         JOIN user_profiles up ON ea.user_id = up.id
-         WHERE ea.status = 'approved'
-         ORDER BY ea.ai_score DESC NULLS LAST, ea.created_at DESC`
-      );
-      res.json({ experts: result.rows });
+      const sb = getSupabase();
+
+      // Get approved expert applications
+      const { data: expertApps, error } = await sb
+        .from('expert_applications')
+        .select('*')
+        .eq('status', 'approved')
+        .order('ai_score', { ascending: false, nullsFirst: false });
+      if (error) throw error;
+
+      if (!expertApps || expertApps.length === 0) {
+        return res.json({ experts: [] });
+      }
+
+      // Get user profiles for these experts
+      const userIds = expertApps.map(e => e.user_id);
+      const { data: profiles } = await sb
+        .from('user_profiles')
+        .select('id, name, photos, location, expert_rating, reviews_count')
+        .in('id', userIds);
+
+      const profilesMap: Record<string, any> = {};
+      if (profiles) {
+        for (const p of profiles) {
+          profilesMap[p.id] = p;
+        }
+      }
+
+      const experts = expertApps.map(ea => ({
+        ...ea,
+        name: profilesMap[ea.user_id]?.name,
+        photos: profilesMap[ea.user_id]?.photos,
+        location: profilesMap[ea.user_id]?.location,
+        expert_rating: profilesMap[ea.user_id]?.expert_rating,
+        reviews_count: profilesMap[ea.user_id]?.reviews_count,
+      }));
+
+      res.json({ experts });
     } catch (error) {
       console.error("List experts error:", error);
-      res.status(500).json({ error: "Failed to list experts" });
+      res.json({ experts: [] });
     }
   });
 
@@ -2165,15 +2639,27 @@ Scoring rules:
       const totalAmount = (rate / 60) * duration;
       const platformFee = totalAmount * 0.3;
 
-      const result = await pool.query(
-        `INSERT INTO consultation_bookings (user_id, expert_id, expert_application_id, hourly_rate, duration_minutes, total_amount, platform_fee, payment_status, revenuecat_transaction_id, notes, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'confirmed')
-         RETURNING *`,
-        [userId, expertId, expertApplicationId || null, rate, duration, totalAmount, platformFee,
-         transactionId ? "completed" : "pending", transactionId || null, notes || null]
-      );
+      const sb = getSupabase();
+      const { data: result, error } = await sb
+        .from('consultation_bookings')
+        .insert({
+          user_id: userId,
+          expert_id: expertId,
+          expert_application_id: expertApplicationId || null,
+          hourly_rate: rate,
+          duration_minutes: duration,
+          total_amount: totalAmount,
+          platform_fee: platformFee,
+          payment_status: transactionId ? "completed" : "pending",
+          revenuecat_transaction_id: transactionId || null,
+          notes: notes || null,
+          status: 'confirmed',
+        })
+        .select()
+        .single();
 
-      res.json({ booking: result.rows[0] });
+      if (error) throw error;
+      res.json({ booking: result });
     } catch (error) {
       console.error("Book consultation error:", error);
       res.status(500).json({ error: "Failed to book consultation" });
@@ -2183,37 +2669,103 @@ Scoring rules:
   app.get("/api/consultations/user/:userId", async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
-      const result = await pool.query(
-        `SELECT cb.*, up.name as expert_name, up.photos as expert_photos, ea.specialization
-         FROM consultation_bookings cb
-         JOIN user_profiles up ON cb.expert_id = up.id
-         LEFT JOIN expert_applications ea ON cb.expert_application_id = ea.id
-         WHERE cb.user_id = $1
-         ORDER BY cb.created_at DESC`,
-        [userId]
-      );
-      res.json({ bookings: result.rows });
+      const sb = getSupabase();
+
+      // Get bookings for user
+      const { data: bookings, error } = await sb
+        .from('consultation_bookings')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      if (!bookings || bookings.length === 0) {
+        return res.json({ bookings: [] });
+      }
+
+      // Get expert profiles and applications
+      const expertIds = [...new Set(bookings.map(b => b.expert_id))];
+      const appIds = bookings.map(b => b.expert_application_id).filter(Boolean);
+
+      const { data: expertProfiles } = await sb
+        .from('user_profiles')
+        .select('id, name, photos')
+        .in('id', expertIds);
+
+      let appsMap: Record<string, any> = {};
+      if (appIds.length > 0) {
+        const { data: apps } = await sb
+          .from('expert_applications')
+          .select('id, specialization')
+          .in('id', appIds);
+        if (apps) {
+          for (const a of apps) {
+            appsMap[a.id] = a;
+          }
+        }
+      }
+
+      const profilesMap: Record<string, any> = {};
+      if (expertProfiles) {
+        for (const p of expertProfiles) {
+          profilesMap[p.id] = p;
+        }
+      }
+
+      const enrichedBookings = bookings.map(cb => ({
+        ...cb,
+        expert_name: profilesMap[cb.expert_id]?.name,
+        expert_photos: profilesMap[cb.expert_id]?.photos,
+        specialization: cb.expert_application_id ? appsMap[cb.expert_application_id]?.specialization : undefined,
+      }));
+
+      res.json({ bookings: enrichedBookings });
     } catch (error) {
       console.error("List consultations error:", error);
-      res.status(500).json({ error: "Failed to list consultations" });
+      res.json({ bookings: [] });
     }
   });
 
   app.get("/api/consultations/expert/:expertId", async (req: Request, res: Response) => {
     try {
       const { expertId } = req.params;
-      const result = await pool.query(
-        `SELECT cb.*, up.name as client_name, up.photos as client_photos
-         FROM consultation_bookings cb
-         JOIN user_profiles up ON cb.user_id = up.id
-         WHERE cb.expert_id = $1
-         ORDER BY cb.created_at DESC`,
-        [expertId]
-      );
-      res.json({ bookings: result.rows });
+      const sb = getSupabase();
+
+      const { data: bookings, error } = await sb
+        .from('consultation_bookings')
+        .select('*')
+        .eq('expert_id', expertId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      if (!bookings || bookings.length === 0) {
+        return res.json({ bookings: [] });
+      }
+
+      // Get client profiles
+      const clientIds = [...new Set(bookings.map(b => b.user_id))];
+      const { data: clientProfiles } = await sb
+        .from('user_profiles')
+        .select('id, name, photos')
+        .in('id', clientIds);
+
+      const profilesMap: Record<string, any> = {};
+      if (clientProfiles) {
+        for (const p of clientProfiles) {
+          profilesMap[p.id] = p;
+        }
+      }
+
+      const enrichedBookings = bookings.map(cb => ({
+        ...cb,
+        client_name: profilesMap[cb.user_id]?.name,
+        client_photos: profilesMap[cb.user_id]?.photos,
+      }));
+
+      res.json({ bookings: enrichedBookings });
     } catch (error) {
       console.error("List expert consultations error:", error);
-      res.status(500).json({ error: "Failed to list consultations" });
+      res.json({ bookings: [] });
     }
   });
 
@@ -2222,14 +2774,24 @@ Scoring rules:
       const { bookingId } = req.params;
       const { transactionId, paymentStatus } = req.body;
 
-      const result = await pool.query(
-        `UPDATE consultation_bookings SET payment_status = $1, revenuecat_transaction_id = $2
-         WHERE id = $3 RETURNING *`,
-        [paymentStatus || "completed", transactionId || null, bookingId]
-      );
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('consultation_bookings')
+        .update({
+          payment_status: paymentStatus || "completed",
+          revenuecat_transaction_id: transactionId || null,
+        })
+        .eq('id', bookingId)
+        .select()
+        .single();
 
-      if (result.rows.length === 0) return res.status(404).json({ error: "Booking not found" });
-      res.json({ booking: result.rows[0] });
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: "Booking not found" });
+        }
+        throw error;
+      }
+      res.json({ booking: data });
     } catch (error) {
       console.error("Update consultation payment error:", error);
       res.status(500).json({ error: "Failed to update payment" });
@@ -2240,6 +2802,3 @@ Scoring rules:
 
   return httpServer;
 }
-
-
-
