@@ -53,7 +53,8 @@ async function checkSupabaseTables() {
     'expert_applications', 'consultation_bookings'
   ];
   for (const table of tables) {
-    const { error } = await supabaseAdmin.from(table).select('id').limit(1);
+    const col = table === 'user_locations' ? 'user_id' : 'id';
+    const { error } = await supabaseAdmin.from(table).select(col).limit(1);
     if (error) {
       console.log(`[DB] Table '${table}': NOT accessible (${error.message})`);
     } else {
