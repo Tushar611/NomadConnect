@@ -2135,11 +2135,60 @@ Badge assignment:
           created_at: now,
         }, { onConflict: 'swiper_id,swiped_id' });
 
-      // Only attempt matching for real users, not mock profiles
       const isMockProfile = swipedId.startsWith('mock_');
 
       let match = null;
-      if (direction === "right" && !isMockProfile) {
+      if (direction === "right" && isMockProfile) {
+        // Mock profiles always match back instantly
+        const matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const { data: existingMatchA } = await sb
+          .from('matches')
+          .select('id')
+          .eq('user_a_id', swiperId)
+          .eq('user_b_id', swipedId);
+        const { data: existingMatchB } = await sb
+          .from('matches')
+          .select('id')
+          .eq('user_a_id', swipedId)
+          .eq('user_b_id', swiperId);
+        const hasExistingMatch = (existingMatchA && existingMatchA.length > 0) ||
+                                 (existingMatchB && existingMatchB.length > 0);
+        if (!hasExistingMatch) {
+          await sb.from('matches').insert({
+            id: matchId,
+            user_a_id: swiperId,
+            user_b_id: swipedId,
+            created_at: now,
+          });
+          const { data: mp } = await sb
+            .from('user_profiles')
+            .select('*')
+            .eq('id', swipedId)
+            .single();
+          if (mp) {
+            match = {
+              id: matchId,
+              matchedUserId: swipedId,
+              matchedUser: {
+                id: mp.id,
+                email: mp.email || "",
+                name: mp.name || "Nomad",
+                age: mp.age || 25,
+                bio: mp.bio || "",
+                location: mp.location || "On the road",
+                photos: mp.photos || [],
+                interests: mp.interests || [],
+                vanType: mp.van_type || undefined,
+                travelStyle: mp.travel_style || undefined,
+                isTravelVerified: mp.is_travel_verified || false,
+                travelBadge: mp.travel_badge || "none",
+                createdAt: mp.created_at || new Date().toISOString(),
+              },
+              createdAt: now,
+            };
+          }
+        }
+      } else if (direction === "right" && !isMockProfile) {
         const { data: reverseSwipe } = await sb
           .from('swipes')
           .select('id')

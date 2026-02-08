@@ -6,7 +6,6 @@ import {
   Modal,
   Platform,
   Linking,
-  Alert,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -29,6 +28,7 @@ import { Icon } from "@/components/Icon";
 import { AppColors, BorderRadius, Spacing, Shadows } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
+import { useAlert } from "@/context/AlertContext";
 import { apiRequest } from "@/lib/query-client";
 
 const SHAKE_THRESHOLD = 2.5;
@@ -44,6 +44,7 @@ interface SOSButtonProps {
 export function SOSButton({ visible = true }: SOSButtonProps) {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -164,16 +165,21 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
 
   const executeSOSAction = async (action: SOSAction) => {
     if (action !== "call_police_only" && !user?.emergencyContact?.phone) {
-      Alert.alert(
-        "No Emergency Contact",
-        "Please add an emergency contact in your profile settings first.",
-        [{ text: "OK", onPress: () => setShowConfirmModal(false) }]
-      );
+      showAlert({
+        type: "warning",
+        title: "No Emergency Contact",
+        message: "Please add an emergency contact in your profile settings first.",
+      });
+      setShowConfirmModal(false);
       return;
     }
 
     setIsSending(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+
+    setShowConfirmModal(false);
 
     try {
       const policeHelpline = getPoliceHelpline();
@@ -206,37 +212,24 @@ export function SOSButton({ visible = true }: SOSButtonProps) {
         }
       }
 
-      await logIncident(currentLocation);
+      logIncident(currentLocation);
 
       if (action === "sms_and_call_contact" && user?.emergencyContact?.phone) {
-        const contactNumber = `tel:${user.emergencyContact.phone}`;
-        if (await Linking.canOpenURL(contactNumber)) {
-          await Linking.openURL(contactNumber);
-        }
+        Linking.openURL(`tel:${user.emergencyContact.phone}`);
       } else if (action === "sms_and_call_police" || action === "call_police_only") {
-        const emergencyNumber = `tel:${policeHelpline}`;
-        if (await Linking.canOpenURL(emergencyNumber)) {
-          await Linking.openURL(emergencyNumber);
-        }
+        Linking.openURL(`tel:${policeHelpline}`);
       }
 
-      setShowConfirmModal(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      if (action !== "call_police_only") {
-        Alert.alert(
-          "Emergency Alert Sent",
-          `Your emergency contact (${user?.emergencyContact?.name}) has been notified.`,
-          [{ text: "OK" }]
-        );
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error) {
       console.error("SOS Error:", error);
-      Alert.alert(
-        "Error",
-        "Failed to send emergency alert. Please try calling emergency services directly.",
-        [{ text: "OK" }]
-      );
+      showAlert({
+        type: "error",
+        title: "Error",
+        message: "Failed to send emergency alert. Please try calling emergency services directly.",
+      });
     } finally {
       setIsSending(false);
     }
