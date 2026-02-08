@@ -77,7 +77,7 @@ export default function LocationPickerModal({
   }, []);
 
   useEffect(() => {
-    if (selectedLocation && mapRef.current) {
+    if (selectedLocation && mapRef.current && typeof (mapRef.current as any).animateToRegion === 'function') {
       (mapRef.current as any).animateToRegion({
         latitude: selectedLocation.latitude,
         longitude: selectedLocation.longitude,

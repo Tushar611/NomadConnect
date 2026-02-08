@@ -635,8 +635,11 @@ export default function ActivityChatScreen() {
         <Swipeable
           renderLeftActions={isOwnMessage ? undefined : () => <View style={styles.swipeAction} />}
           renderRightActions={isOwnMessage ? () => <View style={styles.swipeAction} /> : undefined}
-          onSwipeableLeftOpen={() => !isOwnMessage && onSwipe()}
-          onSwipeableRightOpen={() => isOwnMessage && onSwipe()}
+          onSwipeableOpen={(direction, swipeable) => {
+            if (direction === 'left' && !isOwnMessage) onSwipe();
+            if (direction === 'right' && isOwnMessage) onSwipe();
+            swipeable.close();
+          }}
         >
           <Pressable onLongPress={() => handleLongPress(item)} delayLongPress={300}>
             <Animated.View
@@ -1456,6 +1459,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginBottom: Spacing.sm,
     paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    backgroundColor: "rgba(255,140,66,0.1)",
+    borderRadius: 10,
   },
   replyBarLeft: {
     width: 3,
@@ -1468,11 +1474,11 @@ const styles = StyleSheet.create({
   },
   replyBarTitle: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.7)",
+    fontWeight: "600" as const,
+    color: AppColors.primary,
   },
   replyBarText: {
     fontSize: 13,
-    color: "#FFFFFF",
   },
   replyPreview: {
     borderLeftWidth: 3,
