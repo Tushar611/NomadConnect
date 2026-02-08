@@ -6,6 +6,8 @@ import {
   Dimensions,
   ActivityIndicator,
   Platform,
+  ScrollView,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -35,11 +37,9 @@ import { ThemedText } from "@/components/ThemedText";
 import { useAuth } from "@/context/AuthContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const RADAR_SIZE = Math.min(SCREEN_WIDTH - 48, 340);
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const RADAR_SIZE = Math.min(SCREEN_WIDTH - 48, 300);
 const RADAR_GREEN = "#00E676";
-const RADAR_GREEN_DIM = "#00C853";
-const RADAR_GREEN_DARK = "#1B5E20";
 
 interface NearbyUser {
   userId: string;
@@ -52,6 +52,20 @@ interface NearbyUser {
   interests: string[];
   photos: string[];
   location?: string;
+}
+
+interface NearbyActivity {
+  id: string;
+  title: string;
+  description?: string;
+  type: string;
+  location?: string;
+  date: string;
+  distance: number;
+  attendeeCount: number;
+  maxAttendees?: number;
+  imageUrl?: string;
+  hostId: string;
 }
 
 function getApiUrl() {
@@ -173,6 +187,57 @@ function PulsingRing({ delay, size }: { delay: number; size: number }) {
   );
 }
 
+function ActivityCard({ activity, onPress }: { activity: NearbyActivity; onPress: () => void }) {
+  const dateStr = new Date(activity.date).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const typeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
+    hiking: "trail-sign",
+    camping: "bonfire",
+    meetup: "people",
+    food: "restaurant",
+    sports: "fitness",
+    music: "musical-notes",
+    other: "calendar",
+  };
+
+  return (
+    <Pressable onPress={onPress} style={styles.activityCard}>
+      <View style={styles.activityIconWrap}>
+        <Ionicons
+          name={typeIcons[activity.type] || "calendar"}
+          size={18}
+          color={RADAR_GREEN}
+        />
+      </View>
+      <View style={styles.activityInfo}>
+        <ThemedText style={styles.activityTitle} numberOfLines={1}>
+          {activity.title}
+        </ThemedText>
+        <View style={styles.activityMeta}>
+          <Ionicons name="navigate" size={11} color="rgba(255,255,255,0.4)" />
+          <ThemedText style={styles.activityMetaText}>
+            {activity.distance} km
+          </ThemedText>
+          <Ionicons name="time" size={11} color="rgba(255,255,255,0.4)" />
+          <ThemedText style={styles.activityMetaText}>{dateStr}</ThemedText>
+        </View>
+      </View>
+      <View style={styles.activityAttendees}>
+        <Ionicons name="people" size={13} color="rgba(255,255,255,0.5)" />
+        <ThemedText style={styles.attendeeCount}>
+          {activity.attendeeCount}
+          {activity.maxAttendees ? `/${activity.maxAttendees}` : ""}
+        </ThemedText>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function SocialRadarScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -182,11 +247,15 @@ export default function SocialRadarScreen() {
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
+  const [nearbyActivities, setNearbyActivities] = useState<NearbyActivity[]>([]);
   const [selectedUser, setSelectedUser] = useState<NearbyUser | null>(null);
   const [limitReached, setLimitReached] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [scansUsed, setScansUsed] = useState(0);
   const [scansLimit, setScansLimit] = useState(2);
+  const [sendingRequest, setSendingRequest] = useState(false);
+  const [requestSent, setRequestSent] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<"people" | "activities">("people");
 
   const sweepRotation = useSharedValue(0);
   const centerPulse = useSharedValue(1);
@@ -228,6 +297,7 @@ export default function SocialRadarScreen() {
     setScanning(true);
     setLocationError(null);
     setSelectedUser(null);
+    setRequestSent(new Set());
     startScanAnimation();
 
     try {
@@ -292,6 +362,7 @@ export default function SocialRadarScreen() {
 
       stopScanAnimation();
       setNearbyUsers(data.users || []);
+      setNearbyActivities(data.activities || []);
       setScansUsed(data.scansUsed || 0);
       setScansLimit(data.scansLimit || 2);
       setScanned(true);
@@ -309,6 +380,67 @@ export default function SocialRadarScreen() {
     setSelectedUser(u);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
+
+  const handleViewProfile = (targetUser: NearbyUser) => {
+    Alert.alert(
+      `${targetUser.name}${targetUser.age ? `, ${targetUser.age}` : ""}`,
+      [
+        targetUser.location ? `Location: ${targetUser.location}` : null,
+        `Distance: ${targetUser.distance} km away`,
+        targetUser.bio ? `\n${targetUser.bio}` : null,
+        targetUser.interests?.length ? `\nInterests: ${targetUser.interests.join(", ")}` : null,
+      ].filter(Boolean).join("\n"),
+      [{ text: "OK" }]
+    );
+  };
+
+  const handleSendChatRequest = async (targetUser: NearbyUser) => {
+    if (!user?.id || sendingRequest) return;
+    setSendingRequest(true);
+
+    try {
+      const baseUrl = getApiUrl();
+
+      const { data: myProfile } = await fetch(
+        new URL(`/api/profile/${user.id}`, baseUrl).toString()
+      ).then(r => r.json().then(d => ({ data: d })).catch(() => ({ data: null })));
+
+      const response = await fetch(new URL("/api/radar/chat-request", baseUrl).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderId: user.id,
+          receiverId: targetUser.userId,
+          senderName: myProfile?.name || user.email?.split("@")[0] || "Nomad",
+          senderPhoto: myProfile?.photos?.[0] || "",
+          receiverName: targetUser.name,
+          receiverPhoto: targetUser.photos?.[0] || "",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.alreadyConnected) {
+        Alert.alert("Already Connected", "You're already connected with this person. Check your matches!");
+      } else if (data.alreadyRequested) {
+        Alert.alert("Request Pending", "You've already sent a chat request to this person.");
+      } else if (data.success) {
+        setRequestSent(prev => new Set(prev).add(targetUser.userId));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to send chat request. Please try again.");
+    } finally {
+      setSendingRequest(false);
+    }
+  };
+
+  const handleActivityPress = (activity: NearbyActivity) => {
+    setSelectedUser(null);
+    navigation.navigate("Activities");
+  };
+
+  const totalFound = nearbyUsers.length + nearbyActivities.length;
 
   return (
     <View style={styles.container}>
@@ -350,66 +482,72 @@ export default function SocialRadarScreen() {
         </View>
       </View>
 
-      <View style={styles.radarArea}>
-        <View style={[styles.radarOuter, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
-          <View style={styles.radarBorder} />
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollInner}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.radarArea}>
+          <View style={[styles.radarOuter, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
+            <View style={styles.radarBorder} />
 
-          <View style={[styles.ring, styles.ring1]} />
-          <View style={[styles.ring, styles.ring2]} />
-          <View style={[styles.ring, styles.ring3]} />
+            <View style={[styles.ring, styles.ring1]} />
+            <View style={[styles.ring, styles.ring2]} />
+            <View style={[styles.ring, styles.ring3]} />
 
-          <View style={styles.crossH} />
-          <View style={styles.crossV} />
+            <View style={styles.crossH} />
+            <View style={styles.crossV} />
 
-          <View style={styles.diagLine1} />
-          <View style={styles.diagLine2} />
+            <View style={styles.diagLine1} />
+            <View style={styles.diagLine2} />
 
-          {scanning && (
-            <>
-              <PulsingRing delay={0} size={RADAR_SIZE} />
-              <PulsingRing delay={900} size={RADAR_SIZE} />
-              <PulsingRing delay={1800} size={RADAR_SIZE} />
+            {scanning && (
+              <>
+                <PulsingRing delay={0} size={RADAR_SIZE} />
+                <PulsingRing delay={900} size={RADAR_SIZE} />
+                <PulsingRing delay={1800} size={RADAR_SIZE} />
 
-              <Animated.View style={[styles.sweepWrap, sweepStyle]}>
-                <LinearGradient
-                  colors={["rgba(0,230,118,0.45)", "rgba(0,230,118,0.15)", "rgba(0,230,118,0)"]}
-                  start={{ x: 0.5, y: 0.5 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.sweepGradient, { width: RADAR_SIZE / 2, height: RADAR_SIZE / 2 }]}
-                />
-              </Animated.View>
-            </>
-          )}
+                <Animated.View style={[styles.sweepWrap, sweepStyle]}>
+                  <LinearGradient
+                    colors={["rgba(0,230,118,0.45)", "rgba(0,230,118,0.15)", "rgba(0,230,118,0)"]}
+                    start={{ x: 0.5, y: 0.5 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.sweepGradient, { width: RADAR_SIZE / 2, height: RADAR_SIZE / 2 }]}
+                  />
+                </Animated.View>
+              </>
+            )}
 
-          {scanned && nearbyUsers.map((u, i) => (
-            <RadarDot
-              key={u.userId}
-              user={u}
-              index={i}
-              radarSize={RADAR_SIZE}
-              onPress={() => handleUserPress(u)}
-            />
-          ))}
+            {scanned && nearbyUsers.map((u, i) => (
+              <RadarDot
+                key={u.userId}
+                user={u}
+                index={i}
+                radarSize={RADAR_SIZE}
+                onPress={() => handleUserPress(u)}
+              />
+            ))}
 
-          <Animated.View style={[styles.centerGlow, centerPulseStyle]}>
-            <View style={styles.centerDotOuter}>
-              <View style={styles.centerDotInner} />
+            <Animated.View style={[styles.centerGlow, centerPulseStyle]}>
+              <View style={styles.centerDotOuter}>
+                <View style={styles.centerDotInner} />
+              </View>
+            </Animated.View>
+
+            <View style={styles.distLabel1}>
+              <ThemedText style={styles.distLabelText}>15km</ThemedText>
             </View>
-          </Animated.View>
-
-          <View style={styles.distLabel1}>
-            <ThemedText style={styles.distLabelText}>15km</ThemedText>
-          </View>
-          <View style={styles.distLabel2}>
-            <ThemedText style={styles.distLabelText}>30km</ThemedText>
-          </View>
-          <View style={styles.distLabel3}>
-            <ThemedText style={styles.distLabelText}>50km</ThemedText>
+            <View style={styles.distLabel2}>
+              <ThemedText style={styles.distLabelText}>30km</ThemedText>
+            </View>
+            <View style={styles.distLabel3}>
+              <ThemedText style={styles.distLabelText}>50km</ThemedText>
+            </View>
           </View>
         </View>
 
         {!scanning && !scanned && !limitReached && (
-          <Animated.View entering={FadeIn.delay(300).duration(400)} style={styles.ctaArea}>
+          <View style={styles.ctaArea}>
             <ThemedText style={styles.ctaHint}>Find nomads near your location</ThemedText>
             <Pressable onPress={handleScan} style={styles.scanBtn}>
               <LinearGradient
@@ -422,54 +560,121 @@ export default function SocialRadarScreen() {
                 <ThemedText style={styles.scanBtnText}>Start Scan</ThemedText>
               </LinearGradient>
             </Pressable>
-          </Animated.View>
+          </View>
         )}
 
         {scanning && (
-          <Animated.View entering={FadeIn.duration(300)} style={styles.statusArea}>
+          <View style={styles.statusArea}>
             <View style={styles.statusDots}>
               <ActivityIndicator size="small" color="#00E676" />
             </View>
             <ThemedText style={styles.statusText}>Scanning for nomads...</ThemedText>
             <ThemedText style={styles.statusSub}>Using your current location</ThemedText>
-          </Animated.View>
+          </View>
         )}
 
-        {scanned && nearbyUsers.length === 0 && (
-          <Animated.View entering={FadeInDown.springify()} style={styles.statusArea}>
+        {scanned && totalFound === 0 && (
+          <View style={styles.statusArea}>
             <Ionicons name="location-outline" size={28} color="rgba(255,255,255,0.3)" />
             <ThemedText style={styles.statusText}>No nomads found nearby</ThemedText>
             <ThemedText style={styles.statusSub}>Try scanning again later</ThemedText>
             <Pressable onPress={handleScan} style={styles.rescanBtn}>
               <ThemedText style={styles.rescanText}>Scan Again</ThemedText>
             </Pressable>
-          </Animated.View>
+          </View>
         )}
 
-        {scanned && nearbyUsers.length > 0 && !selectedUser && (
-          <Animated.View entering={FadeInDown.springify()} style={styles.statusArea}>
-            <ThemedText style={styles.foundCount}>
-              {nearbyUsers.length} nomad{nearbyUsers.length > 1 ? "s" : ""} found
-            </ThemedText>
-            <ThemedText style={styles.statusSub}>Tap a dot to view their profile</ThemedText>
-            <Pressable onPress={() => { setScanned(false); setNearbyUsers([]); handleScan(); }} style={styles.rescanBtn}>
-              <ThemedText style={styles.rescanText}>Scan Again</ThemedText>
-            </Pressable>
-          </Animated.View>
+        {scanned && totalFound > 0 && (
+          <View style={styles.resultsArea}>
+            <View style={styles.resultsSummary}>
+              <ThemedText style={styles.foundCount}>
+                {nearbyUsers.length} nomad{nearbyUsers.length !== 1 ? "s" : ""}
+                {nearbyActivities.length > 0 && ` + ${nearbyActivities.length} activit${nearbyActivities.length !== 1 ? "ies" : "y"}`}
+              </ThemedText>
+              <Pressable onPress={() => { setScanned(false); setNearbyUsers([]); setNearbyActivities([]); handleScan(); }} style={styles.rescanBtn}>
+                <Ionicons name="refresh" size={14} color={RADAR_GREEN} />
+              </Pressable>
+            </View>
+
+            {(nearbyUsers.length > 0 && nearbyActivities.length > 0) && (
+              <View style={styles.tabRow}>
+                <Pressable
+                  onPress={() => setActiveTab("people")}
+                  style={[styles.tab, activeTab === "people" && styles.tabActive]}
+                >
+                  <Ionicons name="people" size={15} color={activeTab === "people" ? "#FFF" : "rgba(255,255,255,0.4)"} />
+                  <ThemedText style={[styles.tabText, activeTab === "people" && styles.tabTextActive]}>
+                    People ({nearbyUsers.length})
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => setActiveTab("activities")}
+                  style={[styles.tab, activeTab === "activities" && styles.tabActive]}
+                >
+                  <Ionicons name="calendar" size={15} color={activeTab === "activities" ? "#FFF" : "rgba(255,255,255,0.4)"} />
+                  <ThemedText style={[styles.tabText, activeTab === "activities" && styles.tabTextActive]}>
+                    Activities ({nearbyActivities.length})
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
+
+            {(activeTab === "people" || nearbyActivities.length === 0) && nearbyUsers.length > 0 && (
+              <View style={styles.listSection}>
+                <ThemedText style={styles.sectionHint}>Tap a dot on the radar or a person below</ThemedText>
+                {nearbyUsers.map((u) => (
+                  <Pressable key={u.userId} onPress={() => handleUserPress(u)} style={styles.userRow}>
+                    {u.photos?.[0] ? (
+                      <Image source={{ uri: u.photos[0] }} style={styles.userRowPhoto} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.userRowPhoto, styles.userRowPhotoEmpty]}>
+                        <Ionicons name="person" size={16} color="rgba(255,255,255,0.4)" />
+                      </View>
+                    )}
+                    <View style={styles.userRowInfo}>
+                      <ThemedText style={styles.userRowName}>{u.name}{u.age ? `, ${u.age}` : ""}</ThemedText>
+                      <View style={styles.userRowDistRow}>
+                        <Ionicons name="navigate" size={11} color={RADAR_GREEN} />
+                        <ThemedText style={styles.userRowDist}>{u.distance} km</ThemedText>
+                      </View>
+                    </View>
+                    {requestSent.has(u.userId) ? (
+                      <View style={styles.requestSentBadge}>
+                        <Ionicons name="checkmark" size={14} color={RADAR_GREEN} />
+                      </View>
+                    ) : (
+                      <Pressable onPress={() => handleSendChatRequest(u)} style={styles.miniRequestBtn}>
+                        <Ionicons name="chatbubble" size={14} color={RADAR_GREEN} />
+                      </Pressable>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {activeTab === "activities" && nearbyActivities.length > 0 && (
+              <View style={styles.listSection}>
+                <ThemedText style={styles.sectionHint}>Upcoming activities near you</ThemedText>
+                {nearbyActivities.map((act) => (
+                  <ActivityCard key={act.id} activity={act} onPress={() => handleActivityPress(act)} />
+                ))}
+              </View>
+            )}
+          </View>
         )}
 
         {locationError && (
-          <Animated.View entering={FadeIn.duration(200)} style={styles.statusArea}>
+          <View style={styles.statusArea}>
             <Ionicons name="warning-outline" size={24} color="#FFCA28" />
             <ThemedText style={styles.statusText}>{locationError}</ThemedText>
             <Pressable onPress={handleScan} style={styles.rescanBtn}>
               <ThemedText style={styles.rescanText}>Try Again</ThemedText>
             </Pressable>
-          </Animated.View>
+          </View>
         )}
 
         {limitReached && (
-          <Animated.View entering={FadeInDown.springify()} style={styles.limitArea}>
+          <View style={styles.limitArea}>
             <Ionicons name="lock-closed" size={24} color="#00E676" />
             <ThemedText style={styles.limitTitle}>Weekly Limit Reached</ThemedText>
             <ThemedText style={styles.limitSub}>Upgrade for unlimited radar scans</ThemedText>
@@ -483,9 +688,11 @@ export default function SocialRadarScreen() {
                 <ThemedText style={styles.upgradeBtnText}>Upgrade Now</ThemedText>
               </LinearGradient>
             </Pressable>
-          </Animated.View>
+          </View>
         )}
-      </View>
+
+        <View style={{ height: insets.bottom + 80 }} />
+      </ScrollView>
 
       {selectedUser && (
         <Animated.View
@@ -533,6 +740,45 @@ export default function SocialRadarScreen() {
                 ))}
               </View>
             )}
+
+            <View style={styles.profileActions}>
+              <Pressable
+                onPress={() => handleViewProfile(selectedUser)}
+                style={styles.profileActionBtn}
+              >
+                <Ionicons name="person-circle" size={20} color={RADAR_GREEN} />
+                <ThemedText style={styles.profileActionText}>View Profile</ThemedText>
+              </Pressable>
+
+              {requestSent.has(selectedUser.userId) ? (
+                <View style={styles.profileActionSent}>
+                  <Ionicons name="checkmark-circle" size={20} color={RADAR_GREEN} />
+                  <ThemedText style={styles.profileActionSentText}>Request Sent</ThemedText>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => handleSendChatRequest(selectedUser)}
+                  disabled={sendingRequest}
+                  style={styles.chatRequestBtn}
+                >
+                  <LinearGradient
+                    colors={["#00E676", "#00C853"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.chatRequestGrad}
+                  >
+                    {sendingRequest ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="chatbubble" size={18} color="#FFF" />
+                        <ThemedText style={styles.chatRequestText}>Chat Request</ThemedText>
+                      </>
+                    )}
+                  </LinearGradient>
+                </Pressable>
+              )}
+            </View>
           </View>
         </Animated.View>
       )}
@@ -557,6 +803,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingBottom: 8,
+    zIndex: 20,
   },
   backBtn: {
     width: 38,
@@ -577,7 +824,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: "#FFF",
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "700" as const,
   },
   scanBadge: {
     backgroundColor: "rgba(0,230,118,0.15)",
@@ -588,20 +835,25 @@ const styles = StyleSheet.create({
   scanBadgeText: {
     color: "#00E676",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "600" as const,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  scrollInner: {
+    alignItems: "center",
+    paddingBottom: 20,
   },
   radarArea: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingBottom: 20,
+    paddingVertical: 16,
   },
   radarOuter: {
     borderRadius: 999,
     position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
   },
   radarBorder: {
     ...StyleSheet.absoluteFillObject,
@@ -718,7 +970,7 @@ const styles = StyleSheet.create({
   distLabelText: {
     color: "rgba(0,230,118,0.25)",
     fontSize: 9,
-    fontWeight: "500",
+    fontWeight: "500" as const,
   },
   dotContainer: {
     position: "absolute",
@@ -761,6 +1013,7 @@ const styles = StyleSheet.create({
   ctaArea: {
     alignItems: "center",
     gap: 12,
+    marginTop: 8,
   },
   ctaHint: {
     color: "rgba(255,255,255,0.4)",
@@ -781,11 +1034,12 @@ const styles = StyleSheet.create({
   scanBtnText: {
     color: "#FFF",
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "700" as const,
   },
   statusArea: {
     alignItems: "center",
     gap: 6,
+    marginTop: 8,
   },
   statusDots: {
     marginBottom: 4,
@@ -800,13 +1054,12 @@ const styles = StyleSheet.create({
   },
   foundCount: {
     color: "#00E676",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "700" as const,
   },
   rescanBtn: {
-    marginTop: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 16,
     backgroundColor: "rgba(0,230,118,0.12)",
     borderWidth: 1,
@@ -815,16 +1068,171 @@ const styles = StyleSheet.create({
   rescanText: {
     color: "#00E676",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "600" as const,
+  },
+  resultsArea: {
+    width: "100%",
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  resultsSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  tabRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  tabActive: {
+    backgroundColor: "rgba(0,230,118,0.12)",
+    borderColor: "rgba(0,230,118,0.25)",
+  },
+  tabText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
+    fontWeight: "600" as const,
+  },
+  tabTextActive: {
+    color: "#FFF",
+  },
+  listSection: {
+    gap: 8,
+  },
+  sectionHint: {
+    color: "rgba(255,255,255,0.3)",
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  userRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    padding: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  userRowPhoto: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "rgba(0,230,118,0.25)",
+  },
+  userRowPhotoEmpty: {
+    backgroundColor: "rgba(0,230,118,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  userRowInfo: {
+    flex: 1,
+  },
+  userRowName: {
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "600" as const,
+  },
+  userRowDistRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  userRowDist: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+  },
+  miniRequestBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,230,118,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,230,118,0.2)",
+  },
+  requestSentBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,230,118,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    padding: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  activityIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,230,118,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,230,118,0.15)",
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityTitle: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600" as const,
+  },
+  activityMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
+  },
+  activityMetaText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    marginRight: 6,
+  },
+  activityAttendees: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  attendeeCount: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
   },
   limitArea: {
     alignItems: "center",
     gap: 8,
+    marginTop: 16,
   },
   limitTitle: {
     color: "#FFF",
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "700" as const,
   },
   limitSub: {
     color: "rgba(255,255,255,0.4)",
@@ -839,7 +1247,7 @@ const styles = StyleSheet.create({
   upgradeBtnText: {
     color: "#FFF",
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "700" as const,
   },
   profileSheet: {
     position: "absolute",
@@ -847,13 +1255,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 16,
+    zIndex: 30,
   },
   profileSheetInner: {
-    backgroundColor: "rgba(20,28,22,0.95)",
+    backgroundColor: "rgba(20,28,22,0.97)",
     borderRadius: 22,
     padding: 18,
     borderWidth: 1,
-    borderColor: "rgba(0,230,118,0.12)",
+    borderColor: "rgba(0,230,118,0.15)",
   },
   profileClose: {
     position: "absolute",
@@ -873,9 +1282,9 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     borderWidth: 2,
     borderColor: "rgba(0,230,118,0.35)",
   },
@@ -890,7 +1299,7 @@ const styles = StyleSheet.create({
   profileName: {
     color: "#FFF",
     fontSize: 18,
-    fontWeight: "700",
+    fontWeight: "700" as const,
   },
   profileDistRow: {
     flexDirection: "row",
@@ -930,6 +1339,63 @@ const styles = StyleSheet.create({
   chipText: {
     color: "#00E676",
     fontSize: 12,
-    fontWeight: "500",
+    fontWeight: "500" as const,
+  },
+  profileActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  profileActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,230,118,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(0,230,118,0.18)",
+  },
+  profileActionText: {
+    color: RADAR_GREEN,
+    fontSize: 14,
+    fontWeight: "600" as const,
+  },
+  profileActionSent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,230,118,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(0,230,118,0.1)",
+  },
+  profileActionSentText: {
+    color: "rgba(0,230,118,0.6)",
+    fontSize: 14,
+    fontWeight: "600" as const,
+  },
+  chatRequestBtn: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  chatRequestGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  chatRequestText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "700" as const,
   },
 });

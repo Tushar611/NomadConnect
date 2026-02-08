@@ -1807,11 +1807,11 @@ Return ONLY this JSON structure:
         .sort((a: any, b: any) => a.distance - b.distance);
 
       // Fetch nearby upcoming activities
-      const now = new Date().toISOString();
+      const actNow = new Date().toISOString();
       const { data: allActivities } = await sb
         .from('activities')
         .select('*')
-        .gte('date', now)
+        .gte('date', actNow)
         .order('date', { ascending: true })
         .limit(50);
 
