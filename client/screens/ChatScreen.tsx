@@ -854,7 +854,7 @@ export default function ChatScreen() {
           onPress={() => navigation.goBack()}
           hitSlop={12}
         >
-          <Icon name="chevron-left" size={28} color="#000000" />
+          <Icon name="chevron-back" size={28} color="#000000" />
         </Pressable>
         <Pressable
           style={styles.chatHeaderProfile}
@@ -1903,6 +1903,7 @@ const styles = StyleSheet.create({
     width: 20,
   },
 });
+
 
 
 

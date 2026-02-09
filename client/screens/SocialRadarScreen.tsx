@@ -36,6 +36,7 @@ import * as Location from "expo-location";
 import { ThemedText } from "@/components/ThemedText";
 import { useAuth } from "@/context/AuthContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { getApiUrl } from "@/lib/query-client";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const RADAR_SIZE = Math.min(SCREEN_WIDTH - 48, 300);
@@ -66,15 +67,6 @@ interface NearbyActivity {
   maxAttendees?: number;
   imageUrl?: string;
   hostId: string;
-}
-
-function getApiUrl() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    if (domain.startsWith("http")) return domain;
-    return `https://${domain}`;
-  }
-  return "http://localhost:5000";
 }
 
 function RadarDot({ user, index, radarSize, onPress }: { user: NearbyUser; index: number; radarSize: number; onPress: () => void }) {
@@ -1402,3 +1394,5 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
   },
 });
+
+

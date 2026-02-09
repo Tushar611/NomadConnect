@@ -27,6 +27,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/context/AuthContext";
 import { useSubscription } from "@/context/SubscriptionContext";
+import { getApiUrl } from "@/lib/query-client";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -52,15 +53,6 @@ interface CompatibilityCardProps {
   };
   compact?: boolean;
   onClose?: () => void;
-}
-
-function getApiUrl() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    if (domain.startsWith("http")) return domain;
-    return `https://${domain}`;
-  }
-  return "http://localhost:5000";
 }
 
 export function CompatibilityCard({
@@ -593,3 +585,5 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
   },
 });
+
+
