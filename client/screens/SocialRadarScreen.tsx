@@ -668,7 +668,7 @@ export default function SocialRadarScreen() {
         {limitReached && (
           <View style={styles.limitArea}>
             <Ionicons name="lock-closed" size={24} color="#00E676" />
-            <ThemedText style={styles.limitTitle}>Weekly Limit Reached</ThemedText>
+            <ThemedText style={styles.limitTitle}>Daily Limit Reached</ThemedText>
             <ThemedText style={styles.limitSub}>Upgrade for unlimited radar scans</ThemedText>
             <Pressable onPress={() => navigation.navigate("Subscription")}>
               <LinearGradient
@@ -1394,5 +1394,6 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
   },
 });
+
 
 
