@@ -280,23 +280,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const getTierFeatures = useCallback((t: SubscriptionTier) => TIER_FEATURES[t], []);
   const getTierPrice = useCallback((t: SubscriptionTier) => {
-  if (offerings && offerings.availablePackages.length > 0) {
-    const monthly = offerings.availablePackages.find(
-      (p) => p.packageType === "MONTHLY" || p.identifier === "$rc_monthly",
-    );
-    const lifetime = offerings.availablePackages.find(
-      (p) => p.packageType === "LIFETIME" || p.identifier === "$rc_lifetime",
-    );
+    if (offerings && offerings.availablePackages.length > 0) {
+      const monthly = offerings.availablePackages.find(
+        (p) => p.packageType === "MONTHLY" || p.identifier === "$rc_monthly",
+      );
+      const lifetime = offerings.availablePackages.find(
+        (p) => p.packageType === "LIFETIME" || p.identifier === "$rc_lifetime",
+      );
 
-    if ((t === "explorer" || t === "adventurer") && monthly) {
-      return monthly.product.priceString + "/month";
+      if ((t === "explorer" || t === "adventurer") && monthly) {
+        return monthly.product.priceString + "/month";
+      }
+      if (t === "lifetime" && lifetime) {
+        return lifetime.product.priceString;
+      }
     }
-    if (t === "lifetime" && lifetime) {
-      return lifetime.product.priceString;
-    }
-  }
-  return TIER_PRICES[t];
-}, [offerings]);
+    return TIER_PRICES[t];
+  }, [offerings]);
 
   const isPro = tier === "explorer" || tier === "adventurer" || tier === "lifetime";
   const isPremium = tier === "adventurer" || tier === "lifetime";
@@ -352,6 +352,7 @@ export function useSubscription() {
   }
   return context;
 }
+
 
 
 
