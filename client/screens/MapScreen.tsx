@@ -602,7 +602,7 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     return null;
   };
 
-  if (Platform.OS === 'web' || !MapView) {
+  if (Platform.OS === "web" || !mapsAvailable) {
     const webContent = (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
         <View style={styles.webFallback}>
@@ -1061,3 +1061,4 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
 });
+

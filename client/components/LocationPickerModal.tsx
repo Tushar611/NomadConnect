@@ -424,7 +424,7 @@ export default function LocationPickerModal({
         </View>
 
         <View style={styles.locationListContainer}>
-          {Platform.OS !== "web" ? (
+          {Platform.OS !== "web" && mapsAvailable ? (
             <View style={styles.mapContainer}>
               <MapView
                 ref={mapRef}
@@ -502,7 +502,7 @@ export default function LocationPickerModal({
             </View>
           ) : (
             <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", marginTop: Spacing.xl }}>
-              Use the search box to pick a location. Map selection is available on mobile.
+              Use the search box to pick a location. Map selection is not available on this device.
             </ThemedText>
           )}
         </View>
@@ -750,3 +750,5 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+
+

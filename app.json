@@ -18,7 +18,7 @@
       "foregroundImage": "./assets/images/icon.png",
       "backgroundColor": "#FFFFFF"
       },
-      "edgeToEdgeEnabled": true,
+      "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
       "package": "com.tushar.nomadconnect.app"
     },
@@ -60,3 +60,11 @@
     }
   }
 }
+
+
+
+
+
+
+
+

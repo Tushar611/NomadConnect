@@ -11,6 +11,7 @@ import {
   Dimensions,
   TextInput,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -39,6 +40,7 @@ import LocationPickerModal from "@/components/LocationPickerModal";
 import SafetyRatingModal from "@/components/SafetyRatingModal";
 import { PickerModal } from "@/components/PickerModal";
 import { useAlert } from "@/context/AlertContext";
+import { uploadPhoto } from "@/lib/upload";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -81,6 +83,7 @@ export default function ActivitiesScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState<ActivityLocation | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -139,6 +142,11 @@ export default function ActivitiesScreen() {
     };
     return placeholders[type];
   };
+  const isRemoteImage = (url?: string) => !!url && /^https?:\/\//.test(url);
+
+  const getActivityImageUrl = (activity: Activity) => {
+    return isRemoteImage(activity.imageUrl) ? activity.imageUrl : getPlaceholderImage(activity.type);
+  };
 
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -149,8 +157,19 @@ export default function ActivitiesScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setNewActivity({ ...newActivity, imageUrl: result.assets[0].uri });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const localUri = result.assets[0].uri;
+      setIsUploadingImage(true);
+      try {
+        const uploadResult = await uploadPhoto(localUri);
+        setNewActivity({ ...newActivity, imageUrl: uploadResult.url });
+      } catch (error) {
+        console.error("Activity image upload failed:", error);
+        showAlert({ type: "warning", title: "Upload Failed", message: "Image upload failed. Using a placeholder image instead." });
+        setNewActivity({ ...newActivity, imageUrl: "" });
+      } finally {
+        setIsUploadingImage(false);
+      }
     }
   };
 
@@ -178,7 +197,7 @@ export default function ActivitiesScreen() {
       const activityTitle = newActivity.type === "other" && newActivity.customType.trim()
         ? `${newActivity.customType}: ${newActivity.title}`
         : newActivity.title;
-      const imageUrl = newActivity.imageUrl || getPlaceholderImage(newActivity.type);
+      const imageUrl = isRemoteImage(newActivity.imageUrl) ? newActivity.imageUrl : getPlaceholderImage(newActivity.type);
       
       const combinedDate = new Date(selectedDate);
       combinedDate.setHours(selectedTime.getHours());
@@ -460,7 +479,7 @@ export default function ActivitiesScreen() {
       >
         <View style={styles.cardImageContainer}>
           <Image
-            source={{ uri: item.imageUrl || getPlaceholderImage(item.type) }}
+            source={{ uri: getActivityImageUrl(item) }}
             style={styles.cardImage}
             contentFit="cover"
           />
@@ -865,7 +884,14 @@ export default function ActivitiesScreen() {
               ]}
               onPress={handlePickImage}
             >
-              {newActivity.imageUrl ? (
+              {isUploadingImage ? (
+                <View style={styles.photoPickerEmpty}>
+                  <ActivityIndicator size="small" color={AppColors.primary} />
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
+                    Uploading photo...
+                  </ThemedText>
+                </View>
+              ) : newActivity.imageUrl ? (
                 <View style={styles.photoPickerPreview}>
                   <Image
                     source={{ uri: newActivity.imageUrl }}
@@ -896,7 +922,7 @@ export default function ActivitiesScreen() {
 
             <GradientButton
               onPress={handleCreateActivity}
-              disabled={!newActivity.title.trim() || !newActivity.location.trim()}
+              disabled={!newActivity.title.trim() || !newActivity.location.trim() || isUploadingImage}
               style={styles.createButton}
             >
               Create Activity
@@ -1696,3 +1722,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
 });
+
+
+
+
+
+
