@@ -5,12 +5,15 @@ module.exports = () => {
 
   return {
     ...appJson,
-    android: {
-      ...appJson.android,
-      config: {
-        ...(appJson.android?.config || {}),
-        googleMaps: {
-          apiKey: googleMapsApiKey,
+    expo: {
+      ...appJson.expo,
+      android: {
+        ...appJson.expo?.android,
+        config: {
+          ...(appJson.expo?.android?.config || {}),
+          googleMaps: {
+            apiKey: googleMapsApiKey,
+          },
         },
       },
     },
