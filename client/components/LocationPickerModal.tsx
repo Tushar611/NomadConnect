@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
+import { WebView } from "react-native-webview";
 
 import { ThemedText } from "@/components/ThemedText";
 import { Icon } from "@/components/Icon";
@@ -37,8 +38,37 @@ interface Props {
   onSelectLocation: (location: ActivityLocation) => void;
   initialLocation?: ActivityLocation | null;
 }
-
-export default function LocationPickerModal({
+const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => {
+  return 
+<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" />
+  <style>
+    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <div id=\"map\"></div>
+  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
+  <script>
+    const map = L.map('map').setView([, ], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    map.on('moveend', () => {
+      const c = map.getCenter();
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'center', latitude: c.lat, longitude: c.lng }));
+      }
+    });
+  </script>
+</body>
+</html>;
+};\n\nexport default function LocationPickerModal({
   visible,
   onClose,
   onSelectLocation,
@@ -70,8 +100,7 @@ export default function LocationPickerModal({
     }
   }, [visible, initialLocation]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(() => {\n  const pickerCenter = tempPinLocation || selectedLocation || { latitude: 34.0522, longitude: -118.2437 };\n\n  return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       if (abortRef.current) abortRef.current.abort();
     };
@@ -258,6 +287,17 @@ export default function LocationPickerModal({
 
   const handleRegionChange = useCallback((region: Region) => {
     setMapRegion(region);
+  const handleWebMapMessage = useCallback((event: any) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg?.type === "center" && typeof msg.latitude === "number" && typeof msg.longitude === "number") {
+        setTempPinLocation({ latitude: msg.latitude, longitude: msg.longitude });
+        setMapRegion({ latitude: msg.latitude, longitude: msg.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
     setTempPinLocation({ latitude: region.latitude, longitude: region.longitude });
   }, []);
 
@@ -328,9 +368,7 @@ export default function LocationPickerModal({
         </ThemedText>
       </View>
     </Pressable>
-  );
-
-    return (
+  );\n  const pickerCenter = tempPinLocation || selectedLocation || { latitude: 34.0522, longitude: -118.2437 };\n\n  return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
         <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
@@ -431,41 +469,15 @@ export default function LocationPickerModal({
         </View>
 
         <View style={styles.locationListContainer}>
-          {Platform.OS !== "web" && mapsAvailable ? (
+          {Platform.OS !== "web" ? (
             <View style={styles.mapContainer}>
-              <MapView
-                ref={mapRef}
+                            <WebView
+                key={${pickerCenter.latitude.toFixed(4)}-}
                 style={styles.map}
-                provider={undefined}
-                initialRegion={selectedLocation ? {
-                  latitude: selectedLocation.latitude,
-                  longitude: selectedLocation.longitude,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
-                } : {
-                  latitude: 34.0522,
-                  longitude: -118.2437,
-                  latitudeDelta: 0.5,
-                  longitudeDelta: 0.5,
-                }}
-                onRegionChangeComplete={handleRegionChange}
-                scrollEnabled={true}
-                zoomEnabled={true}
-                pitchEnabled={false}
-                rotateEnabled={false}
-                showsUserLocation={locationPermission === true}
-              >
-                {selectedLocation && !tempPinLocation ? (
-                  <Marker
-                    coordinate={{
-                      latitude: selectedLocation.latitude,
-                      longitude: selectedLocation.longitude,
-                    }}
-                    title={selectedLocation.name}
-                    description={selectedLocation.address}
-                  />
-                ) : null}
-              </MapView>
+                originWhitelist={["*"]}
+                source={{ html: buildPickerMapHtml(pickerCenter) }}
+                onMessage={handleWebMapMessage}
+              />
               <View style={styles.centerPinContainer} pointerEvents="none">
                 <View style={styles.centerPin}>
                   <Icon name="map-pin" size={36} color={AppColors.primary} />
@@ -757,6 +769,14 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+
+
+
+
+
+
+
+
 
 
 

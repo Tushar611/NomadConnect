@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MapView, Marker, Callout, mapsAvailable, Region, PROVIDER_GOOGLE } from "@/lib/maps";
 import { Icon } from "@/components/Icon";
 import * as Haptics from "expo-haptics";
+import { WebView } from "react-native-webview";
 import Animated, { FadeIn, FadeOut, SlideInDown } from "react-native-reanimated";
 
 import { ThemedText } from "@/components/ThemedText";
@@ -76,6 +77,44 @@ const SPOT_COLORS: Record<CampSpot["type"], string> = {
   fishing: "#00BCD4",
   climbing: "#9C27B0",
   kayaking: "#009688",
+};
+const buildOsmMapHtml = (center: { latitude: number; longitude: number }, markers: { id: string; latitude: number; longitude: number; title: string; type: string }[]) => {
+  const safeMarkers = JSON.stringify(markers);
+  return 
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const center = [, ];
+    const map = L.map('map').setView(center, 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    const markers = ;
+    markers.forEach(m => {
+      const color = m.type === 'activity' ? '#FF8C42' : (m.type === 'user' ? '#4CAF50' : '#2196F3');
+      const marker = L.circleMarker([m.latitude, m.longitude], { radius: 8, color, fillColor: color, fillOpacity: 0.9 }).addTo(map);
+      marker.bindPopup(m.title);
+      marker.on('click', () => {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', id: m.id }));
+        }
+      });
+    });
+  </script>
+</body>
+</html>;
 };
 
 type FilterType = "all" | "activities" | "spots";
@@ -310,6 +349,43 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     ...(filter === "all" || filter === "activities" ? activityMarkers : []),
     ...(filter === "all" || filter === "spots" ? spotMarkers : []),
   ];
+  const markerById = useMemo(() => {
+    const map: Record<string, MapMarker> = {};
+    for (const m of allMarkers) {
+      map[m.id] = m;
+    }
+    return map;
+  }, [allMarkers]);
+
+  const osmCenter = useMemo(() => {
+    if (userLocation) return userLocation;
+    return { latitude: region.latitude, longitude: region.longitude };
+  }, [userLocation, region.latitude, region.longitude]);
+
+  const osmMarkers = useMemo(() => {
+    return allMarkers.map((m) => ({
+      id: m.id,
+      latitude: m.coordinate.latitude,
+      longitude: m.coordinate.longitude,
+      title: m.title,
+      type: m.type,
+    }));
+  }, [allMarkers]);
+
+  const webMapKey = useMemo(() => {
+    return ${osmCenter.latitude.toFixed(4)}--;
+  }, [osmCenter, osmMarkers.length]);
+
+  const handleWebMapMessage = useCallback((event: any) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg?.type === "marker" && msg.id && markerById[msg.id]) {
+        handleMarkerPress(markerById[msg.id]);
+      }
+    } catch {
+      // ignore
+    }
+  }, [markerById]);
 
   const handleMarkerPress = (marker: MapMarker) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -602,7 +678,7 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     return null;
   };
 
-  if (Platform.OS === "web" || !mapsAvailable) {
+  if (Platform.OS === "web") {
     const webContent = (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
         <View style={styles.webFallback}>
@@ -645,32 +721,13 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
 
   const mapContent = (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-      <MapView
-        ref={mapRef}
+            <WebView
+        key={webMapKey}
         style={styles.map}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        initialRegion={region}
-        onRegionChangeComplete={setRegion}
-        showsUserLocation={locationPermission === true}
-        showsMyLocationButton={false}
-        mapType="standard"
-      >
-        {allMarkers.map((marker) => (
-          <Marker
-            key={marker.id}
-            coordinate={marker.coordinate}
-            onPress={() => handleMarkerPress(marker)}
-          >
-            <View style={[styles.markerContainer, { backgroundColor: getMarkerColor(marker) }]}>
-              <Icon
-                name={getMarkerIcon(marker)}
-                size={16}
-                color="#FFF"
-              />
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+        originWhitelist={["*"]}
+        source={{ html: buildOsmMapHtml(osmCenter, osmMarkers) }}
+        onMessage={handleWebMapMessage}
+      />
 
       <View style={[styles.searchContainer, { top: insets.top + (onClose ? 130 : 82) }]}>
         <View style={[styles.searchCard, { backgroundColor: theme.cardBackground }, Shadows.medium]}>
@@ -1061,6 +1118,15 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
 });
+
+
+
+
+
+
+
+
+
 
 
 
