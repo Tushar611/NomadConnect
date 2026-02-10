@@ -466,7 +466,7 @@ export default function LocationPickerModal({
           {Platform.OS !== "web" ? (
             <View style={styles.mapContainer}>
                                           <WebView
-                key={${pickerCenter.latitude.toFixed(4)}-}
+                key={`${pickerCenter.latitude.toFixed(4)}-${pickerCenter.longitude.toFixed(4)}`} 
                 style={styles.map}
                 originWhitelist={["*"]}
                 source={{ html: buildPickerMapHtml(pickerCenter) }}
@@ -763,6 +763,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+
 
 
 
