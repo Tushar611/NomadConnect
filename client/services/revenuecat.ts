@@ -176,7 +176,7 @@ export async function getCustomerInfo(): Promise<CustomerInfo | null> {
   }
 }
 
-export async function purchaseConsultation(expertName: string, amount: number): Promise<{
+export async function purchaseConsultation(expertName: string, amount: number, rateTier?: number): Promise<{
   success: boolean;
   transactionId: string | null;
   error?: string;
@@ -223,3 +223,4 @@ export async function purchaseConsultation(expertName: string, amount: number): 
 }
 
 export { isConfigured as isRevenueCatConfigured, ENTITLEMENT_EXPLORER, ENTITLEMENT_ADVENTURER, ENTITLEMENT_LIFETIME };
+

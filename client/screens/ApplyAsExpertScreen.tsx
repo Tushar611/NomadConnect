@@ -78,7 +78,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
           selectedSkills.length > 0 &&
           project1.trim().length > 20 &&
           project2.trim().length > 20 &&
-          parseFloat(hourlyRate) > 0;
+          ALLOWED_HOURLY_RATES.includes(parseInt(hourlyRate));
       case 4: return true;
       case 5: return true;
       default: return false;
@@ -149,7 +149,7 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
         skills: selectedSkills,
         projectDescriptions: [project1, project2].filter(Boolean),
         introVideoUrl: videoUri || null,
-        hourlyRate: parseFloat(hourlyRate),
+        hourlyRate: parseInt(hourlyRate),
       };
 
       const response = await fetch(new URL("/api/expert/apply", getApiUrl()).toString(), {
@@ -385,14 +385,28 @@ export default function ApplyAsExpertScreen({ navigation }: any) {
       />
 
       <ThemedText style={[styles.fieldLabel, { color: theme.text }]}>Hourly Rate ($)</ThemedText>
-      <TextInput
-        style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.cardBackground }]}
-        placeholder="e.g. 75"
-        placeholderTextColor={theme.textSecondary}
-        keyboardType="numeric"
-        value={hourlyRate}
-        onChangeText={setHourlyRate}
-      />
+      <View style={styles.rateRow}>
+        {ALLOWED_HOURLY_RATES.map((rate) => {
+          const isActive = hourlyRate === rate.toString();
+          return (
+            <Pressable
+              key={rate}
+              style={[
+                styles.rateChip,
+                {
+                  backgroundColor: isActive ? AppColors.primary : theme.cardBackground,
+                  borderColor: isActive ? AppColors.primary : theme.border,
+                },
+              ]}
+              onPress={() => setHourlyRate(rate.toString())}
+            >
+              <ThemedText style={{ color: isActive ? "#FFF" : theme.text, fontWeight: "600" as const }}>
+                ${rate}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
     </Animated.View>
   );
 
@@ -767,3 +781,4 @@ const styles = StyleSheet.create({
   submitText: { fontSize: 16, fontWeight: "700", color: "#FFF" },
   btnDisabled: { opacity: 0.5 },
 });
+

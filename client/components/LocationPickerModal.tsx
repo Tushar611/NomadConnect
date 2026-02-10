@@ -58,6 +58,7 @@ export default function LocationPickerModal({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isLoadingUserLocation, setIsLoadingUserLocation] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [isSettingPin, setIsSettingPin] = useState(false);
   const [tempPinLocation, setTempPinLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -86,6 +87,12 @@ export default function LocationPickerModal({
       }, 800);
     }
   }, [selectedLocation]);
+  useEffect(() => {
+    if (!visible) return;
+    Location.requestForegroundPermissionsAsync()
+      .then(({ status }) => setLocationPermission(status === "granted"))
+      .catch(() => setLocationPermission(false));
+  }, [visible]);
 
   const handleSearch = useCallback((text: string) => {
     setSearchQuery(text);
@@ -446,7 +453,7 @@ export default function LocationPickerModal({
                 zoomEnabled={true}
                 pitchEnabled={false}
                 rotateEnabled={false}
-                showsUserLocation={true}
+                showsUserLocation={locationPermission === true}
               >
                 {selectedLocation && !tempPinLocation ? (
                   <Marker
@@ -750,5 +757,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+
 
 

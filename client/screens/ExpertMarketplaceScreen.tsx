@@ -91,7 +91,7 @@ const FALLBACK_EXPERTS: Expert[] = [
   },
 ];
 
-const DURATION_OPTIONS = [30, 60, 90, 120];
+const DURATION_OPTIONS = [30, 60, 90, 120];\nconst ALLOWED_HOURLY_RATES = [50, 75, 100];\nconst normalizeHourlyRate = (rate: number) => {\n  if (!Number.isFinite(rate)) return ALLOWED_HOURLY_RATES[0];\n  return ALLOWED_HOURLY_RATES.reduce((prev, curr) =>\n    Math.abs(curr - rate) < Math.abs(prev - rate) ? curr : prev\n  , ALLOWED_HOURLY_RATES[0]);\n};
 
 function getBadgeColor(badge: string) {
   if (badge === "pro_expert") return "#F59E0B";
@@ -114,7 +114,7 @@ function ExpertCard({
 }) {
   const { theme } = useTheme();
   const badgeColor = getBadgeColor(expert.expert_badge);
-  const avatar = expert.photos?.[0] || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200";
+  const avatar = expert.photos?.[0] || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200";\n  const hourlyRate = normalizeHourlyRate(expert.hourly_rate);
 
   return (
     <View style={[styles.expertCard, { backgroundColor: theme.cardBackground }]}>
@@ -161,7 +161,7 @@ function ExpertCard({
       <View style={styles.expertFooter}>
         <View style={styles.priceContainer}>
           <ThemedText style={styles.priceLabel}>Consultation</ThemedText>
-          <ThemedText style={styles.priceValue}>${expert.hourly_rate}/hr</ThemedText>
+          <ThemedText style={styles.priceValue}>${hourlyRate}/hr</ThemedText>
         </View>
         {expert.location ? (
           <View style={styles.locationContainer}>
@@ -221,7 +221,7 @@ function BookingModal({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const result = await purchaseConsultation(expert.name, totalAmount);
+      const result = await purchaseConsultation(expert.name, totalAmount, hourlyRate);
 
       if (!result.success) {
         if (result.error === "cancelled") {
@@ -241,7 +241,7 @@ function BookingModal({
           userId: user.id,
           expertId: expert.user_id,
           expertApplicationId: expert.id,
-          hourlyRate: expert.hourly_rate,
+          hourlyRate,
           durationMinutes: selectedDuration,
           notes: notes.trim() || undefined,
           transactionId: result.transactionId,
@@ -349,7 +349,7 @@ function BookingModal({
               <View style={[styles.priceSummary, { backgroundColor: theme.cardBackground }]}>
                 <View style={styles.priceRow}>
                   <ThemedText style={{ color: theme.textSecondary }}>Rate</ThemedText>
-                  <ThemedText style={{ fontWeight: "600" as const }}>${expert.hourly_rate}/hr</ThemedText>
+                  <ThemedText style={{ fontWeight: "600" as const }}>${hourlyRate}/hr</ThemedText>
                 </View>
                 <View style={styles.priceRow}>
                   <ThemedText style={{ color: theme.textSecondary }}>Duration</ThemedText>
@@ -1041,3 +1041,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
+
