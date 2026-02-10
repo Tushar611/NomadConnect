@@ -22,7 +22,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { ActivityLocation } from "@/types";
 import { AppColors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { useAlert } from "@/context/AlertContext";
-import { MapView, Marker, mapsAvailable, Region } from "@/lib/maps";
+import { Region } from "@/lib/maps";
 
 interface SearchResult {
   id: string;
@@ -39,22 +39,22 @@ interface Props {
   initialLocation?: ActivityLocation | null;
 }
 const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => {
-  return 
+  return `
 <!doctype html>
 <html>
 <head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
   </style>
 </head>
 <body>
-  <div id=\"map\"></div>
-  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([, ], 10);
+    const map = L.map('map').setView([${center.latitude}, ${center.longitude}], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
@@ -67,8 +67,10 @@ const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => 
     });
   </script>
 </body>
-</html>;
-};\n\nexport default function LocationPickerModal({
+</html>`;
+};
+
+export default function LocationPickerModal({
   visible,
   onClose,
   onSelectLocation,
@@ -92,7 +94,6 @@ const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => 
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [isSettingPin, setIsSettingPin] = useState(false);
   const [tempPinLocation, setTempPinLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const mapRef = useRef<typeof MapView>(null);
 
   useEffect(() => {
     if (visible && initialLocation) {
@@ -100,22 +101,12 @@ const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => 
     }
   }, [visible, initialLocation]);
 
-  useEffect(() => {\n  const pickerCenter = tempPinLocation || selectedLocation || { latitude: 34.0522, longitude: -118.2437 };\n\n  return () => {
+  useEffect(() => {
+    return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       if (abortRef.current) abortRef.current.abort();
     };
   }, []);
-
-  useEffect(() => {
-    if (selectedLocation && mapRef.current && typeof (mapRef.current as any).animateToRegion === 'function') {
-      (mapRef.current as any).animateToRegion({
-        latitude: selectedLocation.latitude,
-        longitude: selectedLocation.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }, 800);
-    }
-  }, [selectedLocation]);
   useEffect(() => {
     if (!visible) return;
     Location.requestForegroundPermissionsAsync()
@@ -368,7 +359,10 @@ const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => 
         </ThemedText>
       </View>
     </Pressable>
-  );\n  const pickerCenter = tempPinLocation || selectedLocation || { latitude: 34.0522, longitude: -118.2437 };\n\n  return (
+  );
+  const pickerCenter = tempPinLocation || selectedLocation || { latitude: 34.0522, longitude: -118.2437 };
+
+  return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
         <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
@@ -471,7 +465,7 @@ const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => 
         <View style={styles.locationListContainer}>
           {Platform.OS !== "web" ? (
             <View style={styles.mapContainer}>
-                            <WebView
+                                          <WebView
                 key={${pickerCenter.latitude.toFixed(4)}-}
                 style={styles.map}
                 originWhitelist={["*"]}
@@ -769,6 +763,12 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+
+
+
+
+
+
 
 
 

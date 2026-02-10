@@ -14,7 +14,7 @@ import {
 import { Image } from "expo-image";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MapView, Marker, Callout, mapsAvailable, Region, PROVIDER_GOOGLE } from "@/lib/maps";
+import { Region } from "@/lib/maps";
 import { Icon } from "@/components/Icon";
 import * as Haptics from "expo-haptics";
 import { WebView } from "react-native-webview";
@@ -78,9 +78,12 @@ const SPOT_COLORS: Record<CampSpot["type"], string> = {
   climbing: "#9C27B0",
   kayaking: "#009688",
 };
-const buildOsmMapHtml = (center: { latitude: number; longitude: number }, markers: { id: string; latitude: number; longitude: number; title: string; type: string }[]) => {
+const buildOsmMapHtml = (
+  center: { latitude: number; longitude: number },
+  markers: { id: string; latitude: number; longitude: number; title: string; type: string }[]
+) => {
   const safeMarkers = JSON.stringify(markers);
-  return 
+  return `
 <!doctype html>
 <html>
 <head>
@@ -95,13 +98,13 @@ const buildOsmMapHtml = (center: { latitude: number; longitude: number }, marker
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const center = [, ];
+    const center = [${center.latitude}, ${center.longitude}];
     const map = L.map('map').setView(center, 9);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-    const markers = ;
+    const markers = ${safeMarkers};
     markers.forEach(m => {
       const color = m.type === 'activity' ? '#FF8C42' : (m.type === 'user' ? '#4CAF50' : '#2196F3');
       const marker = L.circleMarker([m.latitude, m.longitude], { radius: 8, color, fillColor: color, fillOpacity: 0.9 }).addTo(map);
@@ -114,7 +117,7 @@ const buildOsmMapHtml = (center: { latitude: number; longitude: number }, marker
     });
   </script>
 </body>
-</html>;
+</html>`;
 };
 
 type FilterType = "all" | "activities" | "spots";
@@ -133,13 +136,13 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
   const { activities, profiles } = useData();
   const { user } = useAuth();
   const { showAlert } = useAlert();
-  const mapRef = useRef<typeof MapView>(null);
 
   const [filter, setFilter] = useState<FilterType>(initialFilter);
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [savedSpots, setSavedSpots] = useState<string[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [mapRefreshTick, setMapRefreshTick] = useState(0);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [region, setRegion] = useState<Region>({
@@ -176,11 +179,6 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
           latitudeDelta: 5,
           longitudeDelta: 5,
         });
-        mapRef.current?.animateToRegion({
-          ...coords,
-          latitudeDelta: 5,
-          longitudeDelta: 5,
-        }, 500);
       } else {
         setLocationPermission(false);
       }
@@ -255,13 +253,16 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
 
   const centerOnUserLocation = useCallback(async () => {
     if (userLocation) {
-      mapRef.current?.animateToRegion({
-        ...userLocation,
+      setRegion({
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
         latitudeDelta: 2,
         longitudeDelta: 2,
-      }, 500);
+      });
+      setMapRefreshTick((t) => t + 1);
     } else {
       await requestLocationPermission();
+      setMapRefreshTick((t) => t + 1);
     }
   }, [userLocation, requestLocationPermission]);
 
@@ -357,10 +358,7 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     return map;
   }, [allMarkers]);
 
-  const osmCenter = useMemo(() => {
-    if (userLocation) return userLocation;
-    return { latitude: region.latitude, longitude: region.longitude };
-  }, [userLocation, region.latitude, region.longitude]);
+  const osmCenter = useMemo(() => ({ latitude: region.latitude, longitude: region.longitude }), [region.latitude, region.longitude]);
 
   const osmMarkers = useMemo(() => {
     return allMarkers.map((m) => ({
@@ -391,11 +389,6 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedMarker(marker);
     setShowDetail(true);
-    mapRef.current?.animateToRegion({
-      ...marker.coordinate,
-      latitudeDelta: 2,
-      longitudeDelta: 2,
-    }, 300);
   };
 
   const handleSearch = useCallback((query: string) => {
@@ -457,7 +450,6 @@ export default function MapScreen({ visible = true, onClose, initialFilter = "al
       longitudeDelta: 0.5,
     };
     setRegion(nextRegion);
-    mapRef.current?.animateToRegion(nextRegion, 500);
     setSearchQuery(result.display_name);
     setShowSearchResults(false);
   }, []);
@@ -1118,6 +1110,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
 });
+
+
+
+
 
 
 
