@@ -1523,7 +1523,15 @@ Base your estimates on current 2024-2025 market prices in the US. Be specific wi
 
   // ==================== COMPATIBILITY ANALYZER ====================
 
-  const COMPATIBILITY_LIMITS: Record<string, number> = {\n    starter: 2,\n    free: 2,\n    explorer: 15,\n    pro: 15,\n    adventurer: -1,\n    expert: -1,\n    lifetime: -1,\n  };
+  const COMPATIBILITY_LIMITS: Record<string, number> = {
+    starter: 2,
+    free: 2,
+    explorer: 15,
+    pro: 15,
+    adventurer: -1,
+    expert: -1,
+    lifetime: -1,
+  };
 
   function shouldResetDaily(lastResetTimestamp: number): boolean {
     const now = Date.now();
@@ -3444,7 +3452,4 @@ Scoring rules:
 
   return httpServer;
 }
-
-
-
 
