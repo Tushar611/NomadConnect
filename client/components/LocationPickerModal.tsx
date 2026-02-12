@@ -22,7 +22,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { ActivityLocation } from "@/types";
 import { AppColors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { useAlert } from "@/context/AlertContext";
-import { Region } from "@/lib/maps";
+import { MapView, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Region, mapsAvailable } from "@/lib/maps";
 
 interface SearchResult {
   id: string;
@@ -38,6 +38,9 @@ interface Props {
   onSelectLocation: (location: ActivityLocation) => void;
   initialLocation?: ActivityLocation | null;
 }
+
+const SEARCH_USER_AGENT = "NomadConnect/1.0 (contact: support@nomadconnect.app)";
+
 const buildPickerMapHtml = (center: { latitude: number; longitude: number }) => {
   return `
 <!doctype html>
@@ -95,6 +98,7 @@ export default function LocationPickerModal({
   const [isSettingPin, setIsSettingPin] = useState(false);
   const [tempPinLocation, setTempPinLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const webViewRef = useRef<WebView>(null);
+  const mapViewRef = useRef<any>(null);
 
   useEffect(() => {
     if (visible && initialLocation) {
@@ -114,6 +118,79 @@ export default function LocationPickerModal({
       .then(({ status }) => setLocationPermission(status === "granted"))
       .catch(() => setLocationPermission(false));
   }, [visible]);
+
+  const searchLocations = useCallback(async (query: string, limit = 8, signal?: AbortSignal): Promise<SearchResult[]> => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) return [];
+
+    const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}&q=${encodeURIComponent(trimmed)}`;
+    try {
+      const response = await fetch(nominatimUrl, {
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "en",
+          "User-Agent": SEARCH_USER_AGENT,
+        },
+        signal,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const results = (data || []).map((item: any) => {
+          const name = item.display_name?.split(",")[0] || item.display_name || trimmed;
+          const address = item.display_name || "";
+          return {
+            id: item.place_id?.toString() || `${item.lat}-${item.lon}`,
+            name,
+            address,
+            latitude: parseFloat(item.lat),
+            longitude: parseFloat(item.lon),
+          } as SearchResult;
+        });
+        if (results.length > 0) {
+          return results;
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name === "AbortError") throw error;
+      console.error("Nominatim search failed, falling back to device geocoder:", error);
+    }
+
+    const fallbackCoords = await Location.geocodeAsync(trimmed);
+    if (!fallbackCoords || fallbackCoords.length === 0) {
+      return [];
+    }
+
+    const fallbackResults = await Promise.all(
+      fallbackCoords.slice(0, limit).map(async (coords, index) => {
+        let address = "";
+        let name = trimmed;
+        try {
+          const reverse = await Location.reverseGeocodeAsync({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          });
+          if (reverse.length > 0) {
+            const r = reverse[0];
+            const parts = [r.name, r.street, r.city, r.region, r.country].filter(Boolean);
+            address = parts.join(", ");
+            name = r.name || r.city || trimmed;
+          }
+        } catch {
+          // best effort fallback
+        }
+
+        return {
+          id: `fallback-${coords.latitude}-${coords.longitude}-${index}`,
+          name,
+          address,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        } as SearchResult;
+      })
+    );
+
+    return fallbackResults;
+  }, []);
 
   const handleSearch = useCallback((text: string) => {
     setSearchQuery(text);
@@ -136,28 +213,7 @@ export default function LocationPickerModal({
       try {
         const controller = new AbortController();
         abortRef.current = controller;
-        const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q=${encodeURIComponent(text)}`;
-        const response = await fetch(url, {
-          headers: {
-            "Accept": "application/json",
-            "Accept-Language": "en",
-            "User-Agent": "NomadConnect/1.0 (hackathon)"
-          },
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("Search failed");
-        const data = await response.json();
-        const results = (data || []).map((item: any) => {
-          const name = item.display_name?.split(",")[0] || item.display_name || text;
-          const address = item.display_name || "";
-          return {
-            id: item.place_id?.toString() || `${item.lat}-${item.lon}`,
-            name,
-            address,
-            latitude: parseFloat(item.lat),
-            longitude: parseFloat(item.lon),
-          } as SearchResult;
-        });
+        const results = await searchLocations(text, 8, controller.signal);
         setSearchResults(results);
         setShowSearchResults(true);
       } catch (error) {
@@ -169,45 +225,46 @@ export default function LocationPickerModal({
         setIsSearching(false);
       }
     }, 500);
-  }, []);
+  }, [searchLocations]);
 
   const handleUseCustomLocation = useCallback(async () => {
     if (searchQuery.trim().length < 2) return;
 
     try {
       setIsSearching(true);
-      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&q=${encodeURIComponent(searchQuery.trim())}`;
-      const response = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-          "Accept-Language": "en",
-          "User-Agent": "NomadConnect/1.0 (hackathon)",
-        },
-      });
-      if (!response.ok) throw new Error("Search failed");
-      const data = await response.json();
-      if (!data || data.length === 0) {
+      const results = await searchLocations(searchQuery.trim(), 1);
+      if (!results || results.length === 0) {
         showAlert({ type: "warning", title: "Location not found", message: "Please choose a suggestion or try a more specific address." });
         return;
       }
-      const item = data[0];
-      const name = item.display_name?.split(",")[0] || item.display_name || searchQuery.trim();
-      const address = item.display_name || "Custom location";
+
+      const bestMatch = results[0];
       const location: ActivityLocation = {
-        name,
-        latitude: parseFloat(item.lat),
-        longitude: parseFloat(item.lon),
-        address,
+        name: bestMatch.name,
+        latitude: bestMatch.latitude,
+        longitude: bestMatch.longitude,
+        address: bestMatch.address || "Custom location",
       };
       setSelectedLocation(location);
+      setSearchQuery(bestMatch.name);
+      setTempPinLocation({ latitude: bestMatch.latitude, longitude: bestMatch.longitude });
+      setMapRegion({ latitude: bestMatch.latitude, longitude: bestMatch.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+      mapViewRef.current?.animateToRegion?.({
+        latitude: bestMatch.latitude,
+        longitude: bestMatch.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 300);
+      const js = `if (window.setCenter) { window.setCenter(${bestMatch.latitude}, ${bestMatch.longitude}, 12); } true;`;
+      webViewRef.current?.injectJavaScript(js);
       setShowSearchResults(false);
       Keyboard.dismiss();
-    } catch (error) {
+    } catch {
       showAlert({ type: "warning", title: "Location not found", message: "Please choose a suggestion or try a more specific address." });
     } finally {
       setIsSearching(false);
     }
-  }, [searchQuery, showAlert]);
+  }, [searchQuery, searchLocations, showAlert]);
 
   const handleSelectSearchResult = useCallback((result: SearchResult) => {
     Haptics.selectionAsync();
@@ -219,6 +276,15 @@ export default function LocationPickerModal({
     };
     setSelectedLocation(location);
     setSearchQuery(result.name);
+    setTempPinLocation({ latitude: result.latitude, longitude: result.longitude });
+    const nextRegion = {
+      latitude: result.latitude,
+      longitude: result.longitude,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    };
+    setMapRegion(nextRegion);
+    mapViewRef.current?.animateToRegion?.(nextRegion, 300);
     const js = `if (window.setCenter) { window.setCenter(${result.latitude}, ${result.longitude}, 12); } true;`;
     webViewRef.current?.injectJavaScript(js);
     setShowSearchResults(false);
@@ -263,6 +329,12 @@ export default function LocationPickerModal({
 
       setSelectedLocation(selectedLoc);
       setSearchQuery(name);
+      setTempPinLocation({ latitude, longitude });
+      const nextRegion = { latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+      setMapRegion(nextRegion);
+      mapViewRef.current?.animateToRegion?.(nextRegion, 300);
+      const js = `if (window.setCenter) { window.setCenter(${latitude}, ${longitude}, 12); } true;`;
+      webViewRef.current?.injectJavaScript(js);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error("Error getting location:", error);
@@ -435,7 +507,7 @@ export default function LocationPickerModal({
                     </View>
                     <View style={styles.searchResultText}>
                       <ThemedText type="body" style={{ fontWeight: "500" }}>
-                        Use "{searchQuery}"
+                        Use: {searchQuery}
                       </ThemedText>
                       <ThemedText type="small" style={{ color: theme.textSecondary }}>
                         Enter custom location
@@ -454,7 +526,7 @@ export default function LocationPickerModal({
                 </View>
                 <View style={styles.searchResultText}>
                   <ThemedText type="body" style={{ fontWeight: "500" }}>
-                    Use "{searchQuery}"
+                    Use: {searchQuery}
                   </ThemedText>
                   <ThemedText type="small" style={{ color: theme.textSecondary }}>
                     Enter custom location
@@ -467,11 +539,68 @@ export default function LocationPickerModal({
         </View>
 
         <View style={styles.locationListContainer}>
-          {Platform.OS !== "web" ? (
+          {Platform.OS !== "web" && mapsAvailable ? (
             <View style={styles.mapContainer}>
-                                          <WebView
+              <MapView
+                ref={mapViewRef}
+                style={styles.map}
+                provider={Platform.OS === "android" ? (PROVIDER_GOOGLE || PROVIDER_DEFAULT) : PROVIDER_DEFAULT}
+                initialRegion={mapRegion || {
+                  latitude: pickerCenter.latitude,
+                  longitude: pickerCenter.longitude,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                }}
+                onRegionChangeComplete={handleRegionChange}
+                showsUserLocation={locationPermission === true}
+                showsMyLocationButton={false}
+              />
+              <View style={styles.centerPinContainer} pointerEvents="none">
+                <View style={styles.centerPin}>
+                  <Icon name="map-pin" size={36} color={AppColors.primary} />
+                </View>
+                <View style={styles.pinShadow} />
+              </View>
+              {tempPinLocation ? (
+                <View style={styles.confirmPinContainer}>
+                  <Pressable
+                    style={[styles.confirmPinButton, { backgroundColor: AppColors.primary }]}
+                    onPress={handleConfirmPin}
+                    disabled={isSettingPin}
+                  >
+                    {isSettingPin ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Icon name="check" size={18} color="#FFFFFF" />
+                        <ThemedText type="body" style={styles.confirmPinText}>
+                          Set Pin Here
+                        </ThemedText>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              ) : null}
+              <ThemedText type="small" style={[styles.mapHint, { backgroundColor: theme.cardBackground }]}>
+                Drag map to move pin location
+              </ThemedText>
+              <Pressable
+                style={[styles.floatingLocationBtn, { backgroundColor: theme.cardBackground }]}
+                onPress={handleUseCurrentLocation}
+                disabled={isLoadingUserLocation}
+              >
+                {isLoadingUserLocation ? (
+                  <ActivityIndicator size="small" color={AppColors.primary} />
+                ) : (
+                  <Icon name="navigation" size={22} color={AppColors.primary} />
+                )}
+              </Pressable>
+            </View>
+          ) : Platform.OS !== "web" ? (
+            <View style={styles.mapContainer}>
+              <WebView
                 ref={webViewRef}
-                key={`${pickerCenter.latitude.toFixed(4)}-${pickerCenter.longitude.toFixed(4)}`} 
+                key={`${pickerCenter.latitude.toFixed(4)}-${pickerCenter.longitude.toFixed(4)}`}
                 style={styles.map}
                 originWhitelist={["*"]}
                 source={{ html: buildPickerMapHtml(pickerCenter) }}
@@ -768,27 +897,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
