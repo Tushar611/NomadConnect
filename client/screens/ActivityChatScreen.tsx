@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react";
 import {
 StyleSheet,
   View,
@@ -21,7 +21,7 @@ import { Icon } from "@/components/Icon";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import Animated, { FadeInUp, FadeIn } from "react-native-reanimated";
+
 import { Swipeable } from "react-native-gesture-handler";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -50,6 +50,7 @@ type ActivityChatRouteProp = RouteProp<RootStackParamList, "ActivityChat">;
 type ActivityChatNavigationProp = NativeStackNavigationProp<RootStackParamList, "ActivityChat">;
 
 const WAVE_BARS = [2, 4, 6, 4, 7, 5, 3, 6];
+const MESSAGE_POLL_INTERVAL_MS = 8000;
 
 const AudioWave = ({
   active,
@@ -172,7 +173,14 @@ export default function ActivityChatScreen() {
   const isModerator = moderators.some(m => m.userId === user?.id);
   const isHost = activity?.hostId === user?.id;
 
-  const activeMessages = messages.filter((m) => !m.deletedAt);
+  const activeMessages = useMemo(
+    () => messages.filter((m) => !m.deletedAt),
+    [messages]
+  );
+  const reversedMessages = useMemo(
+    () => [...activeMessages].reverse(),
+    [activeMessages]
+  );
   const pinnedMessages = activeMessages.filter((m) => m.isPinned);
 
   const fetchMessages = useCallback(async () => {
@@ -181,7 +189,16 @@ export default function ActivityChatScreen() {
       const response = await fetch(new URL(`/api/activities/${activityId}/messages`, apiUrl).toString());
       if (response.ok) {
         const data = await response.json();
-        setMessages(data);
+        setMessages((prev) => {
+          if (prev.length === data.length) {
+            const prevLast = prev[prev.length - 1];
+            const nextLast = data[data.length - 1];
+            if (prevLast?.id === nextLast?.id && prevLast?.createdAt === nextLast?.createdAt) {
+              return prev;
+            }
+          }
+          return data;
+        });
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -218,10 +235,8 @@ export default function ActivityChatScreen() {
   }, [activity, activityId, user, hasInitialized]);
 
   useEffect(() => {
-    fetchMessages();
-    fetchModerators();
-    initializeChat();
-    const interval = setInterval(fetchMessages, 5000);
+    Promise.all([fetchMessages(), fetchModerators(), initializeChat()]).catch(() => {});
+    const interval = setInterval(fetchMessages, MESSAGE_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchMessages, fetchModerators, initializeChat]);
 
@@ -283,7 +298,7 @@ export default function ActivityChatScreen() {
             senderName: replyTo.senderId === user?.id ? "You" : replyTo.senderName,
           }
         : undefined;
-      await fetch(new URL(`/api/activities/${activityId}/messages`, apiUrl).toString(), {
+      const response = await fetch(new URL(`/api/activities/${activityId}/messages`, apiUrl).toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -301,8 +316,11 @@ export default function ActivityChatScreen() {
           isModeratorMessage: isModerator,
         }),
       });
+      if (response.ok) {
+        const createdMessage = await response.json();
+        setMessages((prev) => [...prev, createdMessage]);
+      }
       setReplyTo(null);
-      fetchMessages();
     } catch (error) {
       console.error("Failed to send message:", error);
     }
@@ -612,8 +630,7 @@ export default function ActivityChatScreen() {
 
       if (isSystemMessage) {
         return (
-          <Animated.View
-            entering={FadeIn}
+          <View
             style={styles.systemMessageContainer}
           >
             <View style={[styles.systemBubble, { backgroundColor: theme.backgroundSecondary }]}>
@@ -622,12 +639,12 @@ export default function ActivityChatScreen() {
                 {item.content}
               </ThemedText>
             </View>
-          </Animated.View>
+          </View>
         );
       }
 
       const showTime = index === 0 || 
-        new Date(item.createdAt).getTime() - new Date(activeMessages[index - 1]?.createdAt).getTime() > 300000;
+        new Date(item.createdAt).getTime() - new Date(reversedMessages[index - 1]?.createdAt).getTime() > 300000;
 
       const onSwipe = () => setReplyTo(item);
 
@@ -642,8 +659,7 @@ export default function ActivityChatScreen() {
           }}
         >
           <Pressable onLongPress={() => handleLongPress(item)} delayLongPress={300}>
-            <Animated.View
-            entering={FadeInUp.delay(index * 30).springify()}
+            <View
             style={[
               styles.messageContainer,
               isOwnMessage ? styles.ownMessage : styles.otherMessage,
@@ -809,12 +825,12 @@ export default function ActivityChatScreen() {
                 </View>
               )}
             </View>
-          </Animated.View>
+          </View>
           </Pressable>
         </Swipeable>
       );
     },
-    [user?.id, theme, moderators, activeMessages, handleLongPress, handleReaction, playAudio, playingAudioId]
+    [user?.id, theme, moderators, reversedMessages, handleLongPress, handleReaction, playAudio, playingAudioId]
   );
 
   const EmptyChat = useCallback(() => (
@@ -846,10 +862,15 @@ export default function ActivityChatScreen() {
 
       <FlatList
         ref={flatListRef}
-        data={activeMessages.toReversed()}
+        data={reversedMessages}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         inverted={activeMessages.length > 0}
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews={Platform.OS !== "ios"}
         contentContainerStyle={[
           styles.listContent,
           { paddingTop: headerHeight + Spacing.lg },
@@ -1873,13 +1894,4 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 });
-
-
-
-
-
-
-
-
-
 

@@ -457,20 +457,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const baseUrl = getApiUrl();
 
-      const [messagesStr, forumStr, discoverRes, matchesRes, likedRes] =
+      const [messagesStr, forumStr, localMatchesStr, discoverRes, matchesRes, likedRes, loadedActivities] =
         await Promise.all([
           AsyncStorage.getItem(`${MESSAGES_KEY}_${user?.id}`),
           AsyncStorage.getItem(FORUM_KEY),
+          AsyncStorage.getItem(`${MATCHES_KEY}_${user?.id}`),
           fetch(new URL(`/api/discover/profiles/${user.id}`, baseUrl).toString()).then(r => r.ok ? r.json() : []).catch(() => []),
           fetch(new URL(`/api/matches/${user.id}`, baseUrl).toString()).then(r => r.ok ? r.json() : []).catch(() => []),
           fetch(new URL(`/api/swipes/liked/${user.id}`, baseUrl).toString()).then(r => r.ok ? r.json() : []).catch(() => []),
+          fetchActivitiesFromAPI(),
         ]);
 
       const loadedMessages: Record<string, Message[]> = messagesStr
         ? JSON.parse(messagesStr)
         : {};
       
-      const loadedActivities = await fetchActivitiesFromAPI() || [];
+      
       const loadedForum: ForumPost[] = forumStr
         ? JSON.parse(forumStr)
         : MOCK_FORUM_POSTS;
@@ -479,7 +481,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const serverMatches: Match[] = matchesRes || [];
       const serverLiked: User[] = likedRes || [];
 
-      const localMatchesStr = await AsyncStorage.getItem(`${MATCHES_KEY}_${user?.id}`);
+      
       const localMatches: Match[] = localMatchesStr ? JSON.parse(localMatchesStr) : [];
       const serverMatchIds = new Set(serverMatches.map(m => m.id));
       const mergedMatches = [
@@ -492,7 +494,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       setMatches(mergedMatches);
       setMessages(loadedMessages);
-      setActivities(loadedActivities);
+      setActivities(loadedActivities || []);
       setForumPosts(loadedForum);
       setProfiles(serverProfiles);
       setLikedIds(new Set(serverLiked.map(u => u.id)));
@@ -992,3 +994,4 @@ export function useData() {
   }
   return context;
 }
+
