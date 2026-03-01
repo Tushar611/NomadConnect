@@ -3812,6 +3812,16 @@ Badge assignment:
           ? [...shuffledReal, ...shuffledMock].slice(0, 30)
           : shuffledMock.slice(0, 30);
 
+        // Always bias first cards toward real users for better UX
+        if (realProfiles.length > 0) {
+          filtered = [...filtered].sort((a: any, b: any) => {
+            const aMock = String(a.id).startsWith("mock");
+            const bMock = String(b.id).startsWith("mock");
+            if (aMock === bMock) return 0;
+            return aMock ? 1 : -1;
+          });
+        }
+
         const meta = await loadExploreXMetaForUsers(filtered.map((row: any) => String(row.id)));
         const profiles = filtered.map((row: any) => {
           const enriched = addExploreXProfileFields(row, meta);
@@ -3899,6 +3909,15 @@ Badge assignment:
       filtered = realProfiles.length > 0
         ? [...shuffledReal, ...shuffledMock].slice(0, 30)
         : shuffledMock.slice(0, 30);
+
+      if (realProfiles.length > 0) {
+        filtered = [...filtered].sort((a: any, b: any) => {
+          const aMock = String(a.id).startsWith("mock");
+          const bMock = String(b.id).startsWith("mock");
+          if (aMock === bMock) return 0;
+          return aMock ? 1 : -1;
+        });
+      }
 
       const meta = await loadExploreXMetaForUsers((filtered || []).map((row: any) => String(row.id)));
       const profiles = filtered.map((row: any) => {

@@ -2960,6 +2960,14 @@ Badge assignment:
         const shuffledReal2 = shuffle2(realProfiles2);
         const shuffledMock2 = shuffle2(mockProfiles2);
         filtered2 = realProfiles2.length > 0 ? [...shuffledReal2, ...shuffledMock2].slice(0, 30) : shuffledMock2.slice(0, 30);
+        if (realProfiles2.length > 0) {
+          filtered2 = [...filtered2].sort((a, b) => {
+            const aMock = String(a.id).startsWith("mock");
+            const bMock = String(b.id).startsWith("mock");
+            if (aMock === bMock) return 0;
+            return aMock ? 1 : -1;
+          });
+        }
         const meta2 = await loadExploreXMetaForUsers(filtered2.map((row) => String(row.id)));
         const profiles2 = filtered2.map((row) => {
           const enriched = addExploreXProfileFields(row, meta2);
@@ -3015,6 +3023,14 @@ Badge assignment:
       const shuffledReal = shuffle(realProfiles);
       const shuffledMock = shuffle(mockProfiles);
       filtered = realProfiles.length > 0 ? [...shuffledReal, ...shuffledMock].slice(0, 30) : shuffledMock.slice(0, 30);
+      if (realProfiles.length > 0) {
+        filtered = [...filtered].sort((a, b) => {
+          const aMock = String(a.id).startsWith("mock");
+          const bMock = String(b.id).startsWith("mock");
+          if (aMock === bMock) return 0;
+          return aMock ? 1 : -1;
+        });
+      }
       const meta = await loadExploreXMetaForUsers((filtered || []).map((row) => String(row.id)));
       const profiles = filtered.map((row) => {
         const enriched = addExploreXProfileFields(row, meta);

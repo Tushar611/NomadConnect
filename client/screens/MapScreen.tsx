@@ -104,13 +104,13 @@ const buildOsmMapHtml = (
       map.setView([lat, lng], zoom || map.getZoom());
     }
     window.setCenter = setCenter;
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     const markers = ${safeMarkers};
     markers.forEach(m => {
-      const color = m.type === 'activity' ? '#F59E0B' : (m.type === 'user' ? '#22C55E' : '#0EA5E9');
+      const color = m.type === 'activity' ? '#F59E0B' : (m.type === 'user' ? '#22C55E' : '#38BDF8');
       const marker = L.circleMarker([m.latitude, m.longitude], { radius: 8, color, fillColor: color, fillOpacity: 0.9 }).addTo(map);
       marker.bindPopup(m.title);
       marker.on('click', () => {

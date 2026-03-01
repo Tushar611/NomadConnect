@@ -14,12 +14,12 @@ export const AppColors = {
   gradientStart: "#246BFD",
   gradientEnd: "#2CC3FF",
 
-  sunsetRose: "#4C88FF",
-  sunsetCoral: "#246BFD",
-  sunsetAmber: "#2CC3FF",
-  sunsetGold: "#88CCFF",
-  sunsetDeep: "#1B4EC0",
-  sunsetWarm: "#2E75FF",
+  sunsetRose: "#EF4444",
+  sunsetCoral: "#F97316",
+  sunsetAmber: "#FB7185",
+  sunsetGold: "#F59E0B",
+  sunsetDeep: "#7F1D1D",
+  sunsetWarm: "#EA580C",
 };
 
 export const GradientPresets = {

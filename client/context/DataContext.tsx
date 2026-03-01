@@ -587,7 +587,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const discoverCards = (discoverRes && discoverRes.length > 0)
         ? discoverRes
         : buildFallbackDiscoverProfiles(userId);
-      setProfiles(discoverCards);
+      const sortedDiscoverCards = [...discoverCards].sort((a, b) => {
+        const aMock = String(a?.user?.id || "").startsWith("mock");
+        const bMock = String(b?.user?.id || "").startsWith("mock");
+        if (aMock === bMock) return 0;
+        return aMock ? 1 : -1;
+      });
+      setProfiles(sortedDiscoverCards);
       setActivities(loadedActivities || []);
       setLikedIds(new Set(likedRes.map((u) => u.id)));
 

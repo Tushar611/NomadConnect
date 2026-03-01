@@ -1,20 +1,13 @@
 import { useContext } from "react";
 import { Colors } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/useColorScheme";
 import { ThemeContext } from "@/context/ThemeContext";
 
 export function useTheme() {
-  const systemColorScheme = useColorScheme();
   const context = useContext(ThemeContext);
-  
-  const themeMode = context?.themeMode ?? "system";
+
   const customTheme = context?.customTheme ?? null;
-  
-  const isDark =
-    themeMode === "dark" ||
-    (themeMode === "system" && systemColorScheme === "dark");
-    
-  const baseTheme = isDark ? Colors.dark : Colors.light;
+  const isDark = false;
+  const baseTheme = Colors.light;
   
   const theme = customTheme
     ? {

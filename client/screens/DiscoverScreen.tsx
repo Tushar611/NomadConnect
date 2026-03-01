@@ -372,8 +372,12 @@ export default function DiscoverScreen() {
     <>
       <View style={[styles.headerInfo, { top: topBarTop }]}>
         <View style={styles.brandRowCenter}>
-          <View style={[styles.brandDot, { backgroundColor: isDark ? "#89D6FF" : "#246BFD" }]} />
-          <ThemedText style={[styles.brandSingle, { color: isDark ? "#EAF1FF" : "#0F1B38" }]}>ExploreX</ThemedText>
+          <Image
+            source={require("../../assets/images/icon.png")}
+            style={styles.brandLogoIcon}
+            contentFit="cover"
+          />
+          <ThemedText style={[styles.brandSingle, { color: "#0F1B38" }]}>ExploreX</ThemedText>
         </View>
       </View>
 
@@ -427,7 +431,7 @@ export default function DiscoverScreen() {
         />
         <TinderButton
           icon="heart"
-          color={AppColors.sunsetCoral}
+          color={AppColors.danger}
           size={60}
           iconSize={28}
           onPress={() => {
