@@ -327,16 +327,6 @@ const MOCK_USERS: User[] = [
 
 const MOCK_ACTIVITIES: Activity[] = [];
 
-const buildFallbackDiscoverProfiles = (currentUserId?: string): SwipeCard[] => {
-  return MOCK_USERS
-    .filter((u) => !currentUserId || u.id !== currentUserId)
-    .slice(0, 30)
-    .map((u) => ({
-      user: u,
-      distance: Math.floor(Math.random() * 50) + 1,
-    }));
-};
-
 const MOCK_FORUM_POSTS: ForumPost[] = [
   {
     id: "post1",
@@ -599,7 +589,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const discoverCards = (discoverRes && discoverRes.length > 0)
         ? discoverRes
-        : buildFallbackDiscoverProfiles(userId);
+        : [];
       const sortedDiscoverCards = [...discoverCards].sort((a, b) => {
         const aMock = String(a?.user?.id || "").startsWith("mock");
         const bMock = String(b?.user?.id || "").startsWith("mock");
@@ -650,34 +640,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const swipeRight = async (userId: string): Promise<Match | null> => {
     if (!user) return null;
 
-    const swipedProfile = profiles.find((p) => p.user.id === userId);
     setProfiles((prev) => prev.filter((p) => p.user.id !== userId));
     setLikedIds(prev => new Set(prev).add(userId));
 
-    const isMockProfile = userId.startsWith('mock');
-    if (isMockProfile && swipedProfile) {
-      const matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const instantMatch: Match = {
-        id: matchId,
-        matchedUserId: userId,
-        matchedUser: swipedProfile.user,
-        createdAt: new Date().toISOString(),
-      };
-      const updatedMatches = [...matches, instantMatch];
-      setMatches(updatedMatches);
-      AsyncStorage.setItem(
-        `${MATCHES_KEY}_${user.id}`,
-        JSON.stringify(updatedMatches)
-      ).catch(() => {});
-
-      fetch(new URL("/api/swipes", getApiUrl()).toString(), {
-        method: "POST",
-        headers: jsonAuthHeaders(),
-        body: JSON.stringify({ swiperId: user.id, swipedId: userId, direction: "right" }),
-      }).catch(() => {});
-
-      return instantMatch;
-    }
 
     try {
       const baseUrl = getApiUrl();

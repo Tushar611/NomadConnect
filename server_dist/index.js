@@ -3395,17 +3395,29 @@ Badge assignment:
         const matchedIds2 = matchRows.map(
           (row) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id)
         );
-        const excludeIds2 = /* @__PURE__ */ new Set([userId, ...swipedIds2, ...matchedIds2]);
-        let filtered2 = allProfilesRes.rows.filter((row) => !excludeIds2.has(String(row.id)));
-        let realProfiles2 = filtered2.filter((p) => !String(p.id).startsWith("mock"));
-        const mockProfiles2 = filtered2.filter((p) => String(p.id).startsWith("mock"));
+        const baseExcludedIds2 = /* @__PURE__ */ new Set([userId, ...swipedIds2]);
+        const strictExcludedIds2 = /* @__PURE__ */ new Set([userId, ...swipedIds2, ...matchedIds2]);
+        let filtered2 = allProfilesRes.rows.filter((row) => {
+          const id = String(row.id);
+          return !strictExcludedIds2.has(id) && !id.startsWith("mock");
+        });
+        let realProfiles2 = filtered2;
+        if (realProfiles2.length < 5) {
+          const relaxed = allProfilesRes.rows.filter((row) => {
+            const id = String(row.id);
+            return !baseExcludedIds2.has(id) && !id.startsWith("mock");
+          });
+          const byId = new Map(realProfiles2.map((row) => [String(row.id), row]));
+          for (const row of relaxed) byId.set(String(row.id), row);
+          realProfiles2 = Array.from(byId.values());
+        }
         if (realProfiles2.length < 15) {
           const appUsersRes = await pgPool.query(
             `SELECT id, email, name, created_at FROM app_users WHERE id <> $1 ORDER BY created_at DESC LIMIT 100`,
             [userId]
           );
           const existingIds = new Set(realProfiles2.map((p) => String(p.id)));
-          const syntheticRows = appUsersRes.rows.filter((u) => !excludeIds2.has(String(u.id)) && !existingIds.has(String(u.id))).map((u) => ({
+          const syntheticRows = appUsersRes.rows.filter((u) => !excludeIds.has(String(u.id)) && !existingIds.has(String(u.id))).map((u) => ({
             id: u.id,
             email: u.email,
             name: u.name || (String(u.email || "").split("@")[0] || "Explorer"),
@@ -3425,7 +3437,7 @@ Badge assignment:
               const existingAfterSynthetic = new Set(realProfiles2.map((p) => String(p.id)));
               const supplemental = sbProfiles.filter((row) => {
                 const id = String(row.id);
-                return !excludeIds2.has(id) && !existingAfterSynthetic.has(id) && !id.startsWith("mock");
+                return !excludeIds.has(id) && !existingAfterSynthetic.has(id) && !id.startsWith("mock");
               }).map((row) => ({
                 id: row.id,
                 email: row.email || "",
@@ -3453,13 +3465,7 @@ Badge assignment:
         };
         const DISCOVER_TARGET_COUNT2 = 20;
         const shuffledReal2 = shuffle2(realProfiles2);
-        const shuffledMock2 = shuffle2(mockProfiles2);
-        if (shuffledReal2.length >= DISCOVER_TARGET_COUNT2) {
-          filtered2 = shuffledReal2.slice(0, DISCOVER_TARGET_COUNT2);
-        } else {
-          const neededMocks = Math.max(0, DISCOVER_TARGET_COUNT2 - shuffledReal2.length);
-          filtered2 = [...shuffledReal2, ...shuffledMock2.slice(0, neededMocks)];
-        }
+        filtered2 = shuffledReal2.slice(0, DISCOVER_TARGET_COUNT2);
         const meta2 = await loadExploreXMetaForUsers(filtered2.map((row) => String(row.id)));
         const profiles2 = filtered2.map((row) => {
           const enriched = addExploreXProfileFields(row, meta2);
@@ -3498,12 +3504,18 @@ Badge assignment:
         ...(matchesA || []).map((m) => m.user_b_id),
         ...(matchesB || []).map((m) => m.user_a_id)
       ];
-      const excludeIds = /* @__PURE__ */ new Set([userId, ...swipedIds, ...matchedIds]);
+      const baseExcludedIds = /* @__PURE__ */ new Set([userId, ...swipedIds]);
+      const strictExcludedIds = /* @__PURE__ */ new Set([userId, ...swipedIds, ...matchedIds]);
       const { data: allProfiles, error } = await sb.from("user_profiles").select("*").neq("id", userId).order("id");
       if (error) throw error;
-      let filtered = (allProfiles || []).filter((p) => !excludeIds.has(p.id));
-      const realProfiles = filtered.filter((p) => !p.id.startsWith("mock"));
-      const mockProfiles = filtered.filter((p) => p.id.startsWith("mock"));
+      let filtered = (allProfiles || []).filter((p) => !strictExcludedIds.has(p.id) && !String(p.id).startsWith("mock"));
+      let realProfiles = filtered;
+      if (realProfiles.length < 5) {
+        const relaxed = (allProfiles || []).filter((p) => !baseExcludedIds.has(p.id) && !String(p.id).startsWith("mock"));
+        const byId = new Map((realProfiles || []).map((row) => [String(row.id), row]));
+        for (const row of relaxed) byId.set(String(row.id), row);
+        realProfiles = Array.from(byId.values());
+      }
       const shuffle = (arr) => {
         const copy = [...arr];
         for (let i = copy.length - 1; i > 0; i--) {
@@ -3514,13 +3526,7 @@ Badge assignment:
       };
       const DISCOVER_TARGET_COUNT = 20;
       const shuffledReal = shuffle(realProfiles);
-      const shuffledMock = shuffle(mockProfiles);
-      if (shuffledReal.length >= DISCOVER_TARGET_COUNT) {
-        filtered = shuffledReal.slice(0, DISCOVER_TARGET_COUNT);
-      } else {
-        const neededMocks = Math.max(0, DISCOVER_TARGET_COUNT - shuffledReal.length);
-        filtered = [...shuffledReal, ...shuffledMock.slice(0, neededMocks)];
-      }
+      filtered = shuffledReal.slice(0, DISCOVER_TARGET_COUNT);
       const meta = await loadExploreXMetaForUsers((filtered || []).map((row) => String(row.id)));
       const profiles = filtered.map((row) => {
         const enriched = addExploreXProfileFields(row, meta);
@@ -3560,6 +3566,9 @@ Badge assignment:
       if (!swiperId || !swipedId || !direction) {
         return res.status(400).json({ error: "swiperId, swipedId, and direction are required" });
       }
+      if (String(swipedId).startsWith("mock")) {
+        return res.status(400).json({ error: "Mock profiles are disabled" });
+      }
       const now = (/* @__PURE__ */ new Date()).toISOString();
       if (pgPool) {
         await pgPool.query(
@@ -3575,7 +3584,7 @@ Badge assignment:
             `SELECT id FROM swipes WHERE swiper_id = $1 AND swiped_id = $2 AND direction = 'right' LIMIT 1`,
             [swipedId, swiperId]
           );
-          const shouldInstantMatch = String(swipedId).startsWith("mock") || Number(reverseSwipe.rowCount || 0) > 0;
+          const shouldInstantMatch = Number(reverseSwipe.rowCount || 0) > 0;
           if (shouldInstantMatch) {
             const sorted = [String(swiperId), String(swipedId)].sort();
             const userA = sorted[0];
@@ -3735,6 +3744,10 @@ Badge assignment:
             return !isOld || active.has(String(m.id));
           });
         }
+        allMatches2 = allMatches2.filter((m) => {
+          const otherId = String(m.user_a_id) === userId ? String(m.user_b_id) : String(m.user_a_id);
+          return !otherId.startsWith("mock");
+        });
         const matchedUserIds2 = allMatches2.map(
           (m) => String(m.user_a_id) === userId ? String(m.user_b_id) : String(m.user_a_id)
         );
@@ -3790,6 +3803,10 @@ Badge assignment:
           return activeMatchIds.has(match.id);
         });
       }
+      allMatches = allMatches.filter((m) => {
+        const otherId = m.user_a_id === userId ? m.user_b_id : m.user_a_id;
+        return !String(otherId).startsWith("mock");
+      });
       const matchedUserIds = allMatches.map(
         (m) => m.user_a_id === userId ? m.user_b_id : m.user_a_id
       );
@@ -3850,7 +3867,7 @@ Badge assignment:
         if (swipedIds2.length === 0) return res.json([]);
         const matchRes = await pgPool.query(`SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`, [userId]);
         const matchedIds2 = new Set(matchRes.rows.map((m) => String(m.user_a_id) === userId ? String(m.user_b_id) : String(m.user_a_id)));
-        const filteredIds2 = swipedIds2.filter((id) => !matchedIds2.has(id));
+        const filteredIds2 = swipedIds2.filter((id) => !matchedIds2.has(id) && !String(id).startsWith("mock"));
         if (filteredIds2.length === 0) return res.json([]);
         const profilesRes = await pgPool.query(`SELECT * FROM user_profiles WHERE id = ANY($1::text[])`, [filteredIds2]);
         const likedProfiles2 = profilesRes.rows.map((row) => ({
@@ -3873,7 +3890,7 @@ Badge assignment:
       if (!swipes || swipes.length === 0) {
         return res.json([]);
       }
-      const swipedIds = swipes.map((s) => s.swiped_id);
+      const swipedIds = swipes.map((s) => s.swiped_id).filter((id) => !String(id).startsWith("mock"));
       const { data: matchesA } = await sb.from("matches").select("user_b_id").eq("user_a_id", userId);
       const { data: matchesB } = await sb.from("matches").select("user_a_id").eq("user_b_id", userId);
       const matchedIds = /* @__PURE__ */ new Set([
