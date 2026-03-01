@@ -513,6 +513,48 @@ async function ensureSocialTables() {
 
 
   await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY,
+      email TEXT,
+      name TEXT DEFAULT '',
+      age INTEGER DEFAULT 0,
+      bio TEXT DEFAULT '',
+      location TEXT DEFAULT '',
+      photos JSONB DEFAULT '[]'::jsonb,
+      interests JSONB DEFAULT '[]'::jsonb,
+      van_type TEXT,
+      travel_style TEXT,
+      is_travel_verified BOOLEAN DEFAULT FALSE,
+      travel_badge TEXT DEFAULT 'none',
+      compatibility_checks_this_week INTEGER DEFAULT 0,
+      radar_scans_this_week INTEGER DEFAULT 0,
+      last_reset_timestamp TIMESTAMP,
+      is_visible_on_radar BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // Backward/forward-compatible migrations for user_profiles
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS email TEXT;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS age INTEGER DEFAULT 0;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]'::jsonb;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS interests JSONB DEFAULT '[]'::jsonb;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS van_type TEXT;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS travel_style TEXT;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS is_travel_verified BOOLEAN DEFAULT FALSE;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS travel_badge TEXT DEFAULT 'none';`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS compatibility_checks_this_week INTEGER DEFAULT 0;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS radar_scans_this_week INTEGER DEFAULT 0;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS last_reset_timestamp TIMESTAMP;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS is_visible_on_radar BOOLEAN DEFAULT TRUE;`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();`);
+  await pgPool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();`);
+
+  await pgPool.query(`
     CREATE TABLE IF NOT EXISTS user_locations (
       user_id TEXT PRIMARY KEY,
       lat DOUBLE PRECISION NOT NULL,
