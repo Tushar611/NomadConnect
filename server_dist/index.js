@@ -1360,6 +1360,102 @@ ${vanDetails}` }
       res.status(500).json({ error: "Failed to update SOS incident" });
     }
   });
+  app2.post("/api/feedback", async (req, res) => {
+    const supportEmail = "nomadconnect611@gmail.com";
+    try {
+      const { userId, userName, userEmail, message, app: appName } = req.body || {};
+      const cleanedMessage = String(message || "").trim();
+      if (!cleanedMessage) {
+        return res.status(400).json({ error: "Feedback message is required" });
+      }
+      const subject = `[${appName || "ExploreX"}] User Feedback`;
+      const body = [
+        `User ID: ${userId || "unknown"}`,
+        `Name: ${userName || "unknown"}`,
+        `Email: ${userEmail || "unknown"}`,
+        "",
+        "Message:",
+        cleanedMessage
+      ].join("\n");
+      let sent = false;
+      const emailjsServiceId = process.env.EMAILJS_SERVICE_ID;
+      const emailjsTemplateId = process.env.EMAILJS_TEMPLATE_ID;
+      const emailjsPublicKey = process.env.EMAILJS_PUBLIC_KEY;
+      const emailjsPrivateKey = process.env.EMAILJS_PRIVATE_KEY;
+      if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
+        try {
+          const emailResponse = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              service_id: emailjsServiceId,
+              template_id: emailjsTemplateId,
+              user_id: emailjsPublicKey,
+              accessToken: emailjsPrivateKey,
+              template_params: {
+                to_email: supportEmail,
+                to_name: "ExploreX Support",
+                from_name: userName || "ExploreX User",
+                from_email: userEmail || "no-reply@explorex.app",
+                subject,
+                message: body
+              }
+            })
+          });
+          sent = emailResponse.ok;
+          if (!sent) {
+            const emailError = await emailResponse.text();
+            console.error("[feedback] EmailJS failed:", emailError);
+          }
+        } catch (emailJsError) {
+          console.error("[feedback] EmailJS request failed:", emailJsError);
+        }
+      }
+      if (!sent && process.env.RESEND_API_KEY) {
+        try {
+          const { Resend: Resend2 } = await import("resend");
+          const resend = new Resend2(process.env.RESEND_API_KEY);
+          const { error } = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL || "ExploreX <onboarding@resend.dev>",
+            to: supportEmail,
+            subject,
+            text: body
+          });
+          sent = !error;
+          if (error) {
+            console.error("[feedback] Resend API failed:", error);
+          }
+        } catch (resendError) {
+          console.error("[feedback] Resend API request failed:", resendError);
+        }
+      }
+      if (!sent) {
+        try {
+          const { getResendClient: getResendClient2 } = await Promise.resolve().then(() => (init_resend(), resend_exports));
+          const { client, fromEmail } = await getResendClient2();
+          const { error } = await client.emails.send({
+            from: `ExploreX <${fromEmail}>`,
+            to: supportEmail,
+            subject,
+            text: body
+          });
+          sent = !error;
+          if (error) {
+            console.error("[feedback] Replit Resend connector failed:", error);
+          }
+        } catch (connectorError) {
+          console.error("[feedback] Resend connector unavailable:", connectorError);
+        }
+      }
+      if (!sent) {
+        return res.status(500).json({ error: "Failed to deliver feedback email" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to submit feedback:", error);
+      res.status(500).json({ error: "Failed to submit feedback" });
+    }
+  });
   app2.post("/api/password-reset/send-otp", async (req, res) => {
     try {
       const { email } = req.body;

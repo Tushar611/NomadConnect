@@ -5,8 +5,6 @@ import {
   Pressable,
   ScrollView,
   Modal,
-  Switch,
-  Platform,
   Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +34,7 @@ import { TravelBadgeDisplay } from "@/components/TravelBadge";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { Ionicons } from "@expo/vector-icons";
 import type { IntentMode } from "@/types";
+import { getApiUrl } from "@/lib/query-client";
 
 const INTERESTS = [
   "Hiking",
@@ -100,11 +99,14 @@ export default function ProfileScreen() {
   const { user, logout, updateProfile, refreshProfile } = useAuth();
   const { showAlert } = useAlert();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { themeMode, setThemeMode, customTheme, setCustomTheme, resetToDefault } = useThemeContext();
+  const { customTheme, setCustomTheme, resetToDefault } = useThemeContext();
     const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [editData, setEditData] = useState({
     name: user?.name || "",
     bio: user?.bio || "",
@@ -300,6 +302,57 @@ export default function ProfileScreen() {
       });
     } catch (error) {
       console.error("Error sharing:", error);
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    const message = feedbackText.trim();
+    if (!message) {
+      showAlert({
+        type: "warning",
+        title: "Feedback Required",
+        message: "Please describe the issue before submitting.",
+      });
+      return;
+    }
+
+    setIsSubmittingFeedback(true);
+    try {
+      const endpoint = new URL("/api/feedback", getApiUrl()).toString();
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user?.id || null,
+          userName: user?.name || "",
+          userEmail: user?.email || "",
+          message,
+          app: "ExploreX",
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to submit feedback");
+      }
+
+      setFeedbackText("");
+      setShowFeedbackModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showAlert({
+        type: "success",
+        title: "Feedback Sent",
+        message: "Thanks. Your feedback has been sent to support.",
+      });
+    } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      showAlert({
+        type: "error",
+        title: "Send Failed",
+        message: "Could not send feedback right now. Please try again.",
+      });
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -542,6 +595,24 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => setShowFeedbackModal(true)}
+            >
+              <View style={styles.settingsLeft}>
+                <Icon name="message-square" size={20} color={theme.text} />
+                <ThemedText type="body" style={styles.settingsText}>
+                  Send Feedback
+                </ThemedText>
+              </View>
+              <View style={styles.settingsRight}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Report issue
+                </ThemedText>
+                <Icon name="chevron-right" size={20} color={theme.textSecondary} />
+              </View>
+            </Pressable>
+
           </View>
         </Animated.View>
 
@@ -653,60 +724,6 @@ export default function ProfileScreen() {
             contentContainerStyle={styles.modalContent}
           >
             <ThemedText type="h4" style={styles.themeSection}>
-              Appearance
-            </ThemedText>
-            <View style={styles.themeModeGrid}>
-              <Pressable
-                style={[
-                  styles.themeModeButton,
-                  {
-                    backgroundColor: themeMode === "light" ? theme.primary : theme.cardBackground,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => setThemeMode("light")}
-              >
-                <Icon name="sun" size={18} color={themeMode === "light" ? "#FFFFFF" : theme.text} />
-                <ThemedText style={{ marginTop: 6, color: themeMode === "light" ? "#FFFFFF" : theme.text }}>
-                  Light
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.themeModeButton,
-                  {
-                    backgroundColor: themeMode === "dark" ? theme.primary : theme.cardBackground,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => setThemeMode("dark")}
-              >
-                <Icon name="moon" size={18} color={themeMode === "dark" ? "#FFFFFF" : theme.text} />
-                <ThemedText style={{ marginTop: 6, color: themeMode === "dark" ? "#FFFFFF" : theme.text }}>
-                  Dark
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.themeModeButton,
-                  {
-                    backgroundColor: themeMode === "system" ? theme.primary : theme.cardBackground,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => setThemeMode("system")}
-              >
-                <Icon name="smartphone" size={18} color={themeMode === "system" ? "#FFFFFF" : theme.text} />
-                <ThemedText style={{ marginTop: 6, color: themeMode === "system" ? "#FFFFFF" : theme.text }}>
-                  System
-                </ThemedText>
-              </Pressable>
-            </View>
-
-            <ThemedText type="h4" style={styles.themeSection}>
               Customize Theme
             </ThemedText>
             <ThemedText type="small" style={[styles.themeHint, { color: theme.textSecondary }]}>
@@ -751,6 +768,44 @@ export default function ProfileScreen() {
               </ThemedText>
             </Pressable>
           </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showFeedbackModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFeedbackModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.backgroundRoot }]}> 
+          <View style={styles.modalHeader}>
+            <ThemedText type="h3">Send Feedback</ThemedText>
+            <Pressable onPress={() => setShowFeedbackModal(false)}>
+              <Icon name="x" size={24} color={theme.text} />
+            </Pressable>
+          </View>
+
+          <View style={styles.modalContent}>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+              This goes directly to support email.
+            </ThemedText>
+            <Input
+              label="Your Issue"
+              placeholder="Tell us what happened..."
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+              multiline
+              numberOfLines={6}
+              containerStyle={styles.modalInput}
+            />
+            <GradientButton
+              onPress={handleSubmitFeedback}
+              disabled={isSubmittingFeedback}
+              style={styles.feedbackSubmitButton}
+            >
+              {isSubmittingFeedback ? "Sending..." : "Submit Feedback"}
+            </GradientButton>
+          </View>
         </View>
       </Modal>
 
@@ -1332,6 +1387,9 @@ const styles = StyleSheet.create({
   resetText: {
     marginLeft: Spacing.sm,
     fontWeight: "500",
+  },
+  feedbackSubmitButton: {
+    marginTop: Spacing.md,
   },
   lookingForTag: {
     flexDirection: "row",
