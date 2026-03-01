@@ -461,6 +461,34 @@ async function ensureSocialTables() {
     );
   `);
 
+  // Backward-compatible migration for older schemas that used user_a/user_b.
+  await pgPool.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS user_a_id TEXT;`);
+  await pgPool.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS user_b_id TEXT;`);
+  await pgPool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'matches' AND column_name = 'user_a'
+      ) THEN
+        UPDATE matches
+        SET user_a_id = COALESCE(user_a_id, user_a)
+        WHERE user_a_id IS NULL;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'matches' AND column_name = 'user_b'
+      ) THEN
+        UPDATE matches
+        SET user_b_id = COALESCE(user_b_id, user_b)
+        WHERE user_b_id IS NULL;
+      END IF;
+    END $$;
+  `);
+
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS chat_messages (
       id TEXT PRIMARY KEY,
@@ -4223,14 +4251,31 @@ Badge assignment:
       if (!userId) return res.status(400).json({ error: "User ID is required" });
 
       if (pgPool) {
-        const [swipedRes, matchRes, allProfilesRes] = await Promise.all([
+        const [swipedRes, allProfilesRes] = await Promise.all([
           pgPool.query(`SELECT swiped_id FROM swipes WHERE swiper_id = $1`, [userId]),
-          pgPool.query(`SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`, [userId]),
           pgPool.query(`SELECT * FROM user_profiles WHERE id <> $1 ORDER BY id`, [userId]),
         ]);
 
+        let matchRows: any[] = [];
+        try {
+          const matchRes = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId],
+          );
+          matchRows = matchRes.rows || [];
+        } catch {
+          // Older DB snapshots used user_a/user_b. Keep discover working.
+          const matchResLegacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId],
+          );
+          matchRows = matchResLegacy.rows || [];
+        }
+
         const swipedIds = swipedRes.rows.map((row: any) => String(row.swiped_id));
-        const matchedIds = matchRes.rows.map((row: any) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id));
+        const matchedIds = matchRows.map((row: any) =>
+          String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id),
+        );
         const excludeIds = new Set([userId, ...swipedIds, ...matchedIds]);
 
         let filtered = allProfilesRes.rows.filter((row: any) => !excludeIds.has(String(row.id)));

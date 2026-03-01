@@ -515,6 +515,32 @@ async function ensureSocialTables() {
       UNIQUE(user_a_id, user_b_id)
     );
   `);
+  await pgPool.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS user_a_id TEXT;`);
+  await pgPool.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS user_b_id TEXT;`);
+  await pgPool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'matches' AND column_name = 'user_a'
+      ) THEN
+        UPDATE matches
+        SET user_a_id = COALESCE(user_a_id, user_a)
+        WHERE user_a_id IS NULL;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'matches' AND column_name = 'user_b'
+      ) THEN
+        UPDATE matches
+        SET user_b_id = COALESCE(user_b_id, user_b)
+        WHERE user_b_id IS NULL;
+      END IF;
+    END $$;
+  `);
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS chat_messages (
       id TEXT PRIMARY KEY,
@@ -3347,13 +3373,28 @@ Badge assignment:
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ error: "User ID is required" });
       if (pgPool) {
-        const [swipedRes, matchRes, allProfilesRes] = await Promise.all([
+        const [swipedRes, allProfilesRes] = await Promise.all([
           pgPool.query(`SELECT swiped_id FROM swipes WHERE swiper_id = $1`, [userId]),
-          pgPool.query(`SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`, [userId]),
           pgPool.query(`SELECT * FROM user_profiles WHERE id <> $1 ORDER BY id`, [userId])
         ]);
+        let matchRows = [];
+        try {
+          const matchRes = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId]
+          );
+          matchRows = matchRes.rows || [];
+        } catch {
+          const matchResLegacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId]
+          );
+          matchRows = matchResLegacy.rows || [];
+        }
         const swipedIds2 = swipedRes.rows.map((row) => String(row.swiped_id));
-        const matchedIds2 = matchRes.rows.map((row) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id));
+        const matchedIds2 = matchRows.map(
+          (row) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id)
+        );
         const excludeIds2 = /* @__PURE__ */ new Set([userId, ...swipedIds2, ...matchedIds2]);
         let filtered2 = allProfilesRes.rows.filter((row) => !excludeIds2.has(String(row.id)));
         let realProfiles2 = filtered2.filter((p) => !String(p.id).startsWith("mock"));
