@@ -748,6 +748,23 @@ async function registerRoutes(app2) {
     storage: uploadStorage,
     limits: { fileSize: 25 * 1024 * 1024 }
   });
+  app2.get("/api/uploads/:fileName", async (req, res) => {
+    try {
+      const raw = String(req.params.fileName || "");
+      const safe = path.basename(raw);
+      if (!safe) {
+        return res.status(400).json({ error: "Invalid file name" });
+      }
+      const full = path.join(uploadsRootDir, safe);
+      if (!fs.existsSync(full)) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      return res.sendFile(full);
+    } catch (error) {
+      console.error("Upload fetch failed:", error);
+      return res.status(500).json({ error: "Failed to fetch file" });
+    }
+  });
   app2.post("/api/uploads", uploadMiddleware.single("file"), async (req, res) => {
     try {
       if (!req.file) {
