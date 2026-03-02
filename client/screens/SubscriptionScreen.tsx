@@ -21,6 +21,7 @@ import { useSubscription, SubscriptionTier } from '@/context/SubscriptionContext
 import { AppColors, Spacing, BorderRadius } from '@/constants/theme';
 import { useAlert } from "@/context/AlertContext";
 import { LinearGradient } from 'expo-linear-gradient';
+import { getRegionalTierPrice, isIndiaUser } from "@/lib/pricing";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -51,7 +52,7 @@ const TIERS: TierConfig[] = [
     gradient: ['#FF8C42', '#F97316', '#EA580C'],
     glowColor: '#FF8C42',
     popular: true,
-    tagline: 'Best value in India',
+    tagline: 'Best value plan',
     packageId: 'explorer_monthly',
   },
   {
@@ -96,19 +97,12 @@ export default function SubscriptionScreen() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  const inIndia = isIndiaUser();
+
   const getPackagePrice = (tierConfig: TierConfig): string => {
-    if (offerings && tierConfig.packageId) {
-      const pkg = offerings.availablePackages.find(
-        (p) => p.identifier === tierConfig.packageId,
-      );
-      if (pkg) {
-        if (tierConfig.id === 'lifetime') {
-          return pkg.product.priceString;
-        }
-        return pkg.product.priceString + "/mo";
-      }
-    }
-    return getTierPrice(tierConfig.id);
+    // Force regional display pricing as requested.
+    // Purchase flow still uses store/RevenueCat products.
+    return getRegionalTierPrice(tierConfig.id);
   };
 
   const handlePurchase = async () => {
@@ -209,7 +203,7 @@ export default function SubscriptionScreen() {
           </View>
           <ThemedText style={[styles.title, { color: theme.text }]}>Choose Your Plan</ThemedText>
           <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Unlock the full nomad experience
+            {inIndia ? 'India pricing enabled' : 'Global pricing enabled'}
           </ThemedText>
           {!isConfigured && (
             <View style={[styles.previewBadge, { backgroundColor: isDark ? 'rgba(255,140,66,0.15)' : 'rgba(255,140,66,0.1)' }]}>

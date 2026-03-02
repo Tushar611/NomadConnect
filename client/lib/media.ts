@@ -84,11 +84,35 @@ const buildDownloadCandidates = (uri: string) => {
     } catch {}
   }
 
+  // Handle legacy paths that were stored as /api/uploads/... instead of /uploads/...
+  if (uri.startsWith("/api/uploads/")) {
+    const legacyFixed = uri.replace("/api/uploads/", "/uploads/");
+    candidates.push(legacyFixed);
+    try {
+      candidates.push(new URL(legacyFixed, getApiUrl()).toString());
+    } catch {}
+  }
+
+  if (apiOrigin) {
+    const guessedName = getFilenameFromUrl(uri, "");
+    if (guessedName) {
+      // Last-resort fallback: direct file lookup on current API origin.
+      candidates.push(`${apiOrigin}/uploads/${guessedName}`);
+      candidates.push(`${apiOrigin}/api/uploads/${guessedName}`);
+    }
+  }
+
   if (/^https?:\/\//i.test(uri) && apiOrigin) {
     try {
       const parsed = new URL(uri);
       const samePathOnApi = `${apiOrigin}${parsed.pathname}${parsed.search}`;
       candidates.push(samePathOnApi);
+
+      if (parsed.pathname.startsWith("/api/uploads/")) {
+        const fixedPath = parsed.pathname.replace("/api/uploads/", "/uploads/");
+        candidates.push(`${parsed.origin}${fixedPath}${parsed.search}`);
+        candidates.push(`${apiOrigin}${fixedPath}${parsed.search}`);
+      }
 
       const uploadsIndex = parsed.pathname.indexOf("/uploads/");
       if (uploadsIndex >= 0) {

@@ -23,6 +23,7 @@ import {
   ENTITLEMENT_ADVENTURER,
   ENTITLEMENT_LIFETIME,
 } from "@/services/revenuecat";
+import { getRegionalTierPrice } from "@/lib/pricing";
 
 export type SubscriptionTier = "starter" | "explorer" | "adventurer" | "lifetime";
 
@@ -83,12 +84,6 @@ export const TIER_LIMITS: Record<
   lifetime: { activities: -1, radarScans: -1, compatChecks: -1 },
 };
 
-const TIER_PRICES: Record<SubscriptionTier, string> = {
-  starter: "Free",
-  explorer: "INR 149/month",
-  adventurer: "INR 299/month",
-  lifetime: "INR 2,499",
-};
 
 const includesAny = (values: string[], keywords: string[]) => {
   const normalizedValues = values.map((value) => value.toLowerCase());
@@ -415,7 +410,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    return TIER_PRICES[t];
+    return getRegionalTierPrice(t);
   }, [offerings]);
 
   const isPro = tier === "explorer" || tier === "adventurer" || tier === "lifetime";

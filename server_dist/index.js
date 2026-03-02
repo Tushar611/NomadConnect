@@ -753,13 +753,8 @@ async function registerRoutes(app2) {
       if (!req.file) {
         return res.status(400).json({ error: "File is required" });
       }
-      const rawProto = String(req.headers["x-forwarded-proto"] || req.protocol || "https");
-      const rawHost = String(req.headers["x-forwarded-host"] || req.headers.host || "");
-      const proto = rawProto.split(",")[0].trim() || "https";
-      const host = rawHost.split(",")[0].trim();
-      const isAbsolute = host.length > 0;
       const relativeUrl = `/uploads/${req.file.filename}`;
-      const url = isAbsolute ? `${proto}://${host}${relativeUrl}` : relativeUrl;
+      const url = relativeUrl;
       return res.json({
         success: true,
         url,
