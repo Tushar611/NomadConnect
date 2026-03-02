@@ -369,6 +369,90 @@ async function ensureAuthTables() {
     );
   `);
 }
+async function ensureDemoDiscoverProfile() {
+  if (!pgPool) return;
+  const demoId = "demo_explorex_profile";
+  const demoEmail = "demo.profile@explorex.app";
+  const demoName = "Aarav Demo";
+  const demoPhotos = JSON.stringify([
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80"
+  ]);
+  const demoInterests = JSON.stringify(["Road Trips", "Photography", "Coffee Walks", "Hiking"]);
+  try {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS app_users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        name TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS user_profiles (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        name TEXT DEFAULT '',
+        age INTEGER DEFAULT 0,
+        bio TEXT DEFAULT '',
+        location TEXT DEFAULT '',
+        photos JSONB DEFAULT '[]'::jsonb,
+        interests JSONB DEFAULT '[]'::jsonb,
+        van_type TEXT,
+        travel_style TEXT,
+        is_travel_verified BOOLEAN DEFAULT FALSE,
+        travel_badge TEXT DEFAULT 'none',
+        compatibility_checks_this_week INTEGER DEFAULT 0,
+        radar_scans_this_week INTEGER DEFAULT 0,
+        last_reset_timestamp TIMESTAMP,
+        is_visible_on_radar BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    const existingUser = await pgPool.query(`SELECT id FROM app_users WHERE email = $1 LIMIT 1`, [demoEmail]);
+    if (!existingUser.rowCount) {
+      const hash = hashPassword("Demo@1234");
+      await pgPool.query(
+        `INSERT INTO app_users (email, password_hash, name) VALUES ($1, $2, $3)`,
+        [demoEmail, hash, demoName]
+      );
+    }
+    await pgPool.query(
+      `INSERT INTO user_profiles (id, email, name, age, bio, location, photos, interests, travel_style, is_travel_verified, travel_badge, is_visible_on_radar, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         email = EXCLUDED.email,
+         name = EXCLUDED.name,
+         age = EXCLUDED.age,
+         bio = EXCLUDED.bio,
+         location = EXCLUDED.location,
+         photos = EXCLUDED.photos,
+         interests = EXCLUDED.interests,
+         travel_style = EXCLUDED.travel_style,
+         is_travel_verified = EXCLUDED.is_travel_verified,
+         travel_badge = EXCLUDED.travel_badge,
+         is_visible_on_radar = EXCLUDED.is_visible_on_radar,
+         updated_at = NOW()`,
+      [
+        demoId,
+        demoEmail,
+        demoName,
+        26,
+        "Travel photographer exploring India by road. Always up for sunset points, chai stops, and weekend hikes.",
+        "Jaipur, India",
+        demoPhotos,
+        demoInterests,
+        "City explorer",
+        true,
+        "explorer",
+        true
+      ]
+    );
+  } catch (error) {
+    console.error("[DB] Demo discover profile setup failed:", error);
+  }
+}
 var uploadsRootDir = path.resolve(process.cwd(), "uploads");
 function ensureUploadsDir() {
   if (!fs.existsSync(uploadsRootDir)) {
@@ -733,6 +817,7 @@ async function registerRoutes(app2) {
   ensureAuthTables().catch((err) => console.error("[DB] Auth table setup failed:", err));
   ensureExploreXTables().catch((err) => console.error("[DB] ExploreX table setup failed:", err));
   ensureSocialTables().catch((err) => console.error("[DB] Social table setup failed:", err));
+  ensureDemoDiscoverProfile().catch((err) => console.error("[DB] Demo discover profile setup failed:", err));
   ensureUploadsDir();
   const uploadStorage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsRootDir),

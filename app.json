@@ -13,11 +13,14 @@
       "bundleIdentifier": "com.tushar.explorex.app"
     },
     "android": {
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "versionCode": 1,
       "adaptiveIcon": {
-      "foregroundImage": "./assets/images/icon.png",
-      "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
@@ -56,18 +59,8 @@
     },
     "extra": {
       "eas": {
-        "projectId": "b82bd2d2-b3ae-4511-8603-bd7b021d12d5"
+        "projectId": "c28c9ebf-4f0e-4490-9be2-f94e8bf3810c"
       }
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
