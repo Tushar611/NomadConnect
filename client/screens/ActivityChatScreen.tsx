@@ -52,6 +52,29 @@ type ActivityChatNavigationProp = NativeStackNavigationProp<RootStackParamList, 
 const WAVE_BARS = [2, 4, 6, 4, 7, 5, 3, 6];
 const MESSAGE_POLL_INTERVAL_MS = 8000;
 
+const resolveMediaUrl = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  if (/^https?:\/\//i.test(value) || value.startsWith("file://") || value.startsWith("data:")) {
+    return value;
+  }
+  try {
+    if (value.startsWith("/api/uploads/")) {
+      return new URL(value.replace("/api/uploads/", "/uploads/"), getApiUrl()).toString();
+    }
+    if (value.startsWith("/")) {
+      return new URL(value, getApiUrl()).toString();
+    }
+  } catch {}
+  return value;
+};
+
+const normalizeMessageMedia = (row: any) => ({
+  ...row,
+  photoUrl: resolveMediaUrl(row?.photoUrl || row?.photo_url),
+  fileUrl: resolveMediaUrl(row?.fileUrl || row?.file_url),
+  audioUrl: resolveMediaUrl(row?.audioUrl || row?.audio_url),
+});
+
 const AudioWave = ({
   active,
   color,
@@ -210,7 +233,7 @@ export default function ActivityChatScreen() {
               return prev;
             }
           }
-          return data;
+          return (data || []).map((row: any) => normalizeMessageMedia(row));
         });
       }
     } catch (error) {
@@ -332,7 +355,7 @@ export default function ActivityChatScreen() {
         }),
       });
       if (response.ok) {
-        const createdMessage = await response.json();
+        const createdMessage = normalizeMessageMedia(await response.json());
         setMessages((prev) => [...prev, createdMessage]);
       }
       setReplyTo(null);
@@ -437,7 +460,7 @@ export default function ActivityChatScreen() {
       );
       if (response.ok) {
         const updated = await response.json();
-        setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? normalizeMessageMedia(updated) : m)));
       }
     } catch (error) {
       console.error("Failed to react:", error);

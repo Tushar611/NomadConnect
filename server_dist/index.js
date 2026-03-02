@@ -3952,10 +3952,52 @@ Badge assignment:
         );
         const swipedIds2 = swipesRes.rows.map((s) => String(s.swiped_id));
         if (swipedIds2.length === 0) return res.json([]);
-        const filteredIds2 = swipedIds2.filter((id) => !String(id).startsWith("mock"));
+        const matchRows = [];
+        try {
+          const modern = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId]
+          );
+          matchRows.push(...modern.rows || []);
+        } catch {
+        }
+        try {
+          const legacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId]
+          );
+          matchRows.push(...legacy.rows || []);
+        } catch {
+        }
+        const matchedIds = new Set(
+          matchRows.map(
+            (row) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id)
+          ).filter((id) => id && id !== "null" && id !== "undefined")
+        );
+        const filteredIds2 = swipedIds2.filter((id) => !String(id).startsWith("mock") && !matchedIds.has(String(id)));
         if (filteredIds2.length === 0) return res.json([]);
         const profilesRes = await pgPool.query(`SELECT * FROM user_profiles WHERE id = ANY($1::text[])`, [filteredIds2]);
         const profileMap2 = Object.fromEntries((profilesRes.rows || []).map((row) => [String(row.id), row]));
+        const missingIds = filteredIds2.filter((id) => !profileMap2[id]);
+        if (missingIds.length > 0) {
+          const usersRes = await pgPool.query(
+            `SELECT id, email, name, created_at FROM app_users WHERE id = ANY($1::text[])`,
+            [missingIds]
+          );
+          for (const u of usersRes.rows || []) {
+            profileMap2[String(u.id)] = {
+              id: u.id,
+              email: u.email || "",
+              name: u.name || (String(u.email || "").split("@")[0] || "Explorer"),
+              age: 25,
+              bio: "",
+              location: "",
+              photos: [],
+              interests: [],
+              created_at: u.created_at || (/* @__PURE__ */ new Date()).toISOString()
+            };
+          }
+        }
         const likedProfiles2 = filteredIds2.map((id) => profileMap2[id]).filter(Boolean).map((row) => ({
           id: row.id,
           email: row.email || "",

@@ -5007,27 +5007,75 @@ Badge assignment:
         const swipedIds = swipesRes.rows.map((s: any) => String(s.swiped_id));
         if (swipedIds.length === 0) return res.json([]);
 
-        const filteredIds = swipedIds.filter((id: string) => !String(id).startsWith('mock'));
+        // Exclude matched users (keep only right-swiped but not matched).
+        const matchRows: any[] = [];
+        try {
+          const modern = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId],
+          );
+          matchRows.push(...(modern.rows || []));
+        } catch {}
+        try {
+          const legacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId],
+          );
+          matchRows.push(...(legacy.rows || []));
+        } catch {}
+
+        const matchedIds = new Set(
+          matchRows
+            .map((row: any) =>
+              String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id),
+            )
+            .filter((id: string) => id && id !== "null" && id !== "undefined")
+        );
+
+        const filteredIds = swipedIds.filter((id: string) => !String(id).startsWith('mock') && !matchedIds.has(String(id)));
         if (filteredIds.length === 0) return res.json([]);
 
         const profilesRes = await pgPool.query(`SELECT * FROM user_profiles WHERE id = ANY($1::text[])`, [filteredIds]);
         const profileMap = Object.fromEntries((profilesRes.rows || []).map((row: any) => [String(row.id), row]));
+
+        // Some discover cards come from app_users without a user_profiles row yet.
+        const missingIds = filteredIds.filter((id: string) => !profileMap[id]);
+        if (missingIds.length > 0) {
+          const usersRes = await pgPool.query(
+            `SELECT id, email, name, created_at FROM app_users WHERE id = ANY($1::text[])`,
+            [missingIds],
+          );
+          for (const u of usersRes.rows || []) {
+            profileMap[String(u.id)] = {
+              id: u.id,
+              email: u.email || "",
+              name: u.name || (String(u.email || '').split('@')[0] || 'Explorer'),
+              age: 25,
+              bio: "",
+              location: "",
+              photos: [],
+              interests: [],
+              created_at: u.created_at || new Date().toISOString(),
+            };
+          }
+        }
+
         const likedProfiles = filteredIds
           .map((id: string) => profileMap[id])
           .filter(Boolean)
           .map((row: any) => ({
-          id: row.id,
-          email: row.email || "",
-          name: row.name || "Nomad",
-          age: row.age || 25,
-          bio: row.bio || "",
-          location: row.location || "On the road",
-          photos: row.photos || [],
-          interests: row.interests || [],
-          vanType: row.van_type || undefined,
-          travelStyle: row.travel_style || undefined,
-          createdAt: row.created_at || new Date().toISOString(),
-        }));
+            id: row.id,
+            email: row.email || "",
+            name: row.name || "Nomad",
+            age: row.age || 25,
+            bio: row.bio || "",
+            location: row.location || "On the road",
+            photos: row.photos || [],
+            interests: row.interests || [],
+            vanType: row.van_type || undefined,
+            travelStyle: row.travel_style || undefined,
+            createdAt: row.created_at || new Date().toISOString(),
+          }));
 
         return res.json(likedProfiles);
       }

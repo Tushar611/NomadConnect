@@ -438,16 +438,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const resolveMediaUrl = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    if (/^https?:\/\//i.test(value) || value.startsWith("file://") || value.startsWith("data:")) {
+      return value;
+    }
+    try {
+      if (value.startsWith("/api/uploads/")) {
+        return new URL(value.replace("/api/uploads/", "/uploads/"), getApiUrl()).toString();
+      }
+      if (value.startsWith("/")) {
+        return new URL(value, getApiUrl()).toString();
+      }
+    } catch {}
+    return value;
+  };
+
   const mapApiMessageToClient = (row: any): Message => ({
     id: row.id,
     matchId: row.match_id || row.matchId,
     senderId: row.sender_id || row.senderId,
     content: row.content || "",
     type: row.type || "text",
-    photoUrl: row.photo_url || row.photoUrl || undefined,
-    fileUrl: row.file_url || row.fileUrl || undefined,
+    photoUrl: resolveMediaUrl(row.photo_url || row.photoUrl || undefined),
+    fileUrl: resolveMediaUrl(row.file_url || row.fileUrl || undefined),
     fileName: row.file_name || row.fileName || undefined,
-    audioUrl: row.audio_url || row.audioUrl || undefined,
+    audioUrl: resolveMediaUrl(row.audio_url || row.audioUrl || undefined),
     audioDuration: row.audio_duration || row.audioDuration || undefined,
     replyTo: row.reply_to || row.replyTo || undefined,
     reactions: row.reactions || undefined,
@@ -730,11 +746,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       senderId: user.id,
       content,
       type: type || "text",
-      photoUrl,
+      photoUrl: resolveMediaUrl(photoUrl),
       location,
-      fileUrl,
+      fileUrl: resolveMediaUrl(fileUrl),
       fileName,
-      audioUrl: type === "audio" ? fileUrl : undefined,
+      audioUrl: type === "audio" ? resolveMediaUrl(fileUrl) : undefined,
       audioDuration: type === "audio" ? audioDuration : undefined,
       replyTo,
       createdAt: new Date().toISOString(),
@@ -752,7 +768,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           senderId: user.id,
           content,
           type: type || "text",
-          photoUrl,
+          photoUrl: resolveMediaUrl(photoUrl),
           fileUrl,
           fileName,
           audioUrl: type === "audio" ? fileUrl : undefined,
