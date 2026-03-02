@@ -843,7 +843,7 @@ export default function ChatScreen() {
         inverted={chatMessages.length > 0}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: headerHeight + Spacing.lg + 10, paddingTop: Spacing.md },
+          { paddingTop: headerHeight + Spacing.md, paddingBottom: headerHeight + Spacing.sm },
           chatMessages.length === 0 && styles.emptyListContent,
         ]}
         ListEmptyComponent={EmptyChat}
@@ -1303,7 +1303,7 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: "80%",
-    minWidth: 72,
+    minWidth: 110,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,

@@ -4299,22 +4299,23 @@ Badge assignment:
           pgPool.query(`SELECT * FROM user_profiles WHERE id <> $1 ORDER BY id`, [userId]),
         ]);
 
-        // Keep this query compatible with both schemas:
-        // - new columns: user_a_id/user_b_id
-        // - legacy columns: user_a/user_b
-        // Some deployments have both columns but legacy rows with null new columns.
-        const matchRes = await pgPool.query(
-          `
-            SELECT
-              COALESCE(user_a_id, user_a) AS user_a_id,
-              COALESCE(user_b_id, user_b) AS user_b_id
-            FROM matches
-            WHERE COALESCE(user_a_id, user_a) = $1
-               OR COALESCE(user_b_id, user_b) = $1
-          `,
-          [userId],
-        );
-        const matchRows: any[] = matchRes.rows || [];
+        // Keep discover exclusion compatible with both matches schemas.
+        const matchRows: any[] = [];
+        try {
+          const modern = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId],
+          );
+          matchRows.push(...(modern.rows || []));
+        } catch {}
+
+        try {
+          const legacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId],
+          );
+          matchRows.push(...(legacy.rows || []));
+        } catch {}
 
         const swipedIds = swipedRes.rows.map((row: any) => String(row.swiped_id));
         const matchedIds = matchRows

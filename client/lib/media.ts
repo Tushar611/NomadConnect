@@ -1,6 +1,5 @@
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { getApiUrl } from "@/lib/query-client";
@@ -115,20 +114,36 @@ const ensureLocalUri = async (uri: string, filename: string) => {
   let lastError: unknown = null;
   for (const remoteUri of candidates) {
     try {
-      const outFile = new File(Paths.cache, `${Date.now()}_${filename}`);
-      const downloaded = await File.downloadFileAsync(remoteUri, outFile);
-      return downloaded.uri;
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const destination = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
+      const download = await FileSystem.downloadAsync(remoteUri, destination);
+      if (download?.status === 200 && download.uri) {
+        return download.uri;
+      }
+      throw new Error(`Download failed with status ${download?.status ?? "unknown"}`);
     } catch (error) {
       lastError = error;
+      // Try encoded URL variant before moving to next candidate.
+      try {
+        const encoded = encodeURI(remoteUri);
+        if (encoded !== remoteUri) {
+          const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const destination = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
+          const download = await FileSystem.downloadAsync(encoded, destination);
+          if (download?.status === 200 && download.uri) {
+            return download.uri;
+          }
+        }
+      } catch (error2) {
+        lastError = error2;
+      }
     }
   }
 
-  if (lastError) {
-    throw lastError;
-  }
-
+  if (lastError) throw lastError;
   return resolveDownloadUri(uri);
 };
+
 
 const saveWithStorageAccessFramework = async (localUri: string, name: string) => {
   if (!(Platform.OS === "android" && FileSystem.StorageAccessFramework)) {

@@ -3417,18 +3417,23 @@ Badge assignment:
           pgPool.query(`SELECT swiped_id FROM swipes WHERE swiper_id = $1`, [userId]),
           pgPool.query(`SELECT * FROM user_profiles WHERE id <> $1 ORDER BY id`, [userId])
         ]);
-        const matchRes = await pgPool.query(
-          `
-            SELECT
-              COALESCE(user_a_id, user_a) AS user_a_id,
-              COALESCE(user_b_id, user_b) AS user_b_id
-            FROM matches
-            WHERE COALESCE(user_a_id, user_a) = $1
-               OR COALESCE(user_b_id, user_b) = $1
-          `,
-          [userId]
-        );
-        const matchRows = matchRes.rows || [];
+        const matchRows = [];
+        try {
+          const modern = await pgPool.query(
+            `SELECT user_a_id, user_b_id FROM matches WHERE user_a_id = $1 OR user_b_id = $1`,
+            [userId]
+          );
+          matchRows.push(...modern.rows || []);
+        } catch {
+        }
+        try {
+          const legacy = await pgPool.query(
+            `SELECT user_a AS user_a_id, user_b AS user_b_id FROM matches WHERE user_a = $1 OR user_b = $1`,
+            [userId]
+          );
+          matchRows.push(...legacy.rows || []);
+        } catch {
+        }
         const swipedIds2 = swipedRes.rows.map((row) => String(row.swiped_id));
         const matchedIds2 = matchRows.map(
           (row) => String(row.user_a_id) === userId ? String(row.user_b_id) : String(row.user_a_id)

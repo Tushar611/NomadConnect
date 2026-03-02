@@ -894,7 +894,7 @@ export default function ActivityChatScreen() {
         removeClippedSubviews={Platform.OS !== "ios"}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: headerHeight + Spacing.lg, paddingTop: Spacing.md },
+          { paddingTop: headerHeight + Spacing.md, paddingBottom: headerHeight + Spacing.sm },
           activeMessages.length === 0 && styles.emptyListContent,
         ]}
         ListEmptyComponent={EmptyChat}
@@ -1378,6 +1378,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     maxWidth: 280,
+    minWidth: 110,
   },
   ownBubble: {
     borderBottomLeftRadius: BorderRadius.xs,

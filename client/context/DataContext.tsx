@@ -605,9 +605,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ...localMatches.filter((localMatch) => !serverMatchIds.has(localMatch.id)),
       ]);
 
-      const discoverCards = (discoverRes && discoverRes.length > 0)
+      const matchedUserIds = new Set((matchesRes || []).map((m: any) => String(m?.matchedUser?.id || "")));
+      const discoverCards = ((discoverRes && discoverRes.length > 0)
         ? discoverRes
-        : [];
+        : []).filter((card: any) => {
+          const id = String(card?.user?.id || "");
+          return id.length > 0 && !matchedUserIds.has(id);
+        });
       const sortedDiscoverCards = [...discoverCards].sort((a, b) => {
         const aMock = String(a?.user?.id || "").startsWith("mock");
         const bMock = String(b?.user?.id || "").startsWith("mock");
